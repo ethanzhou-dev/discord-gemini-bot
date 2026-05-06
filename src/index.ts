@@ -21,7 +21,7 @@ export default {
     }
 
     // 1. Verify Discord request signature
-    const isValidRequest = verifyKey(
+    const isValidRequest = await verifyKey(
       body,
       signature,
       timestamp,
