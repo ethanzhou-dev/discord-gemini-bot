@@ -13,7 +13,7 @@ const commands = [
     type: 1, // CHAT_INPUT
     options: [
       {
-        name: 'prompt',
+        name: '问题',
         description: '你的问题 (Your question)',
         type: 3, // STRING
         required: true,

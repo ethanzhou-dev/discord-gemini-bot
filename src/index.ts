@@ -47,7 +47,7 @@ export default {
       const commandName = interaction.data.name;
 
       if (commandName === 'ask') {
-        const prompt = interaction.data.options?.find((opt: any) => opt.name === 'prompt')?.value;
+        const prompt = interaction.data.options?.find((opt: any) => opt.name === '问题')?.value;
 
         // Use ctx.waitUntil to process the Gemini request in the background
         // and allow the worker to return the ACK response immediately to Discord (must be < 3 seconds)
