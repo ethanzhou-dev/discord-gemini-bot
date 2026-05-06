@@ -91,8 +91,10 @@ async function handleAskCommand(prompt: string, token: string, env: Env) {
     let replyText = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text;
     
     if (!replyText) {
-       console.error('Gemini API Error Response:', geminiData);
-       replyText = "抱歉，我无法生成回复。可能是内容被安全过滤或接口错误。";
+       console.error('Gemini API Error Response:', JSON.stringify(geminiData, null, 2));
+       // If there's an error message from Google, show it to the user
+       const errorMessage = geminiData?.error?.message || "未知错误 (Unknown error)";
+       replyText = `抱歉，我无法生成回复。\nAPI 报错信息: ${errorMessage}`;
     }
 
     // Discord message limit is 2000 characters
