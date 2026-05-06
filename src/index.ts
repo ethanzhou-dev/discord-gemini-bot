@@ -49,14 +49,19 @@ export default {
       if (commandName === 'ask') {
         const prompt = interaction.data.options?.find((opt: any) => opt.name === '问题')?.value;
 
-        // Use ctx.waitUntil to process the Gemini request in the background
-        // and allow the worker to return the ACK response immediately to Discord (must be < 3 seconds)
-        ctx.waitUntil(handleAskCommand(prompt, interaction.token, env));
-        
         // DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE
-        return Response.json({
+        const response = Response.json({
           type: 5,
         });
+
+        // Use ctx.waitUntil to process the Gemini request in the background
+        if (prompt) {
+          ctx.waitUntil(handleAskCommand(prompt, interaction.token, env));
+        } else {
+          ctx.waitUntil(handleAskCommand("你好", interaction.token, env)); // Default prompt if somehow empty
+        }
+        
+        return response;
       }
     }
 
@@ -67,12 +72,17 @@ export default {
 async function handleAskCommand(prompt: string, token: string, env: Env) {
   try {
     // 1. Request Gemini API
-    const model = env.GEMINI_MODEL || 'gemini-2.5-flash';
+    const model = env.GEMINI_MODEL || 'gemini-1.5-flash';
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${env.GEMINI_API_KEY}`;
     
-    // 构建请求体，如果设置了人设 (System Prompt) 则加入
+    // 确保 prompt 不为空
+    const safePrompt = (prompt && prompt.trim() !== '') ? prompt : "你好";
+
+    // 构建请求体
     const requestBody: any = {
-      contents: [{ parts: [{ text: prompt }] }]
+      contents: [{ 
+        parts: [{ text: safePrompt }] 
+      }]
     };
     
     if (env.SYSTEM_PROMPT) {
