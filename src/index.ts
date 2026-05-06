@@ -105,7 +105,15 @@ async function handleAskCommand(prompt: string, token: string, env: Env) {
        const errorMsg = geminiData?.error?.message || JSON.stringify(geminiData);
        replyText = `抱歉，Gemini API 返回了错误。\n状态码: ${geminiRes.status}\n信息: ${errorMsg}`;
     } else {
-       replyText = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text;
+       const parts = geminiData?.candidates?.[0]?.content?.parts;
+       if (Array.isArray(parts)) {
+          // 过滤掉 thought 部分，并合并所有文本部分
+          replyText = parts
+            .filter((part: any) => !part.thought)
+            .map((part: any) => part.text || "")
+            .join("")
+            .trim();
+       }
        
        if (!replyText) {
           // 检查是否被安全过滤器拦截
