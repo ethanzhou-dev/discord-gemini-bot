@@ -4,6 +4,9 @@ export interface Env {
   DISCORD_PUBLIC_KEY: string;
   DISCORD_APPLICATION_ID: string;
   GEMINI_API_KEY: string;
+  // 可选配置：人设和模型
+  SYSTEM_PROMPT?: string;
+  GEMINI_MODEL?: string;
 }
 
 export default {
@@ -64,20 +67,32 @@ export default {
 async function handleAskCommand(prompt: string, token: string, env: Env) {
   try {
     // 1. Request Gemini API
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${env.GEMINI_API_KEY}`;
+    const model = env.GEMINI_MODEL || 'gemini-2.5-flash';
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${env.GEMINI_API_KEY}`;
+    
+    // 构建请求体，如果设置了人设 (System Prompt) 则加入
+    const requestBody: any = {
+      contents: [{ parts: [{ text: prompt }] }]
+    };
+    
+    if (env.SYSTEM_PROMPT) {
+      requestBody.system_instruction = {
+        parts: [{ text: env.SYSTEM_PROMPT }]
+      };
+    }
+
     const geminiRes = await fetch(geminiUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }]
-      })
+      body: JSON.stringify(requestBody)
     });
 
     const geminiData: any = await geminiRes.json();
     let replyText = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text;
     
     if (!replyText) {
-       replyText = "抱歉，我无法生成回复。 (Sorry, I couldn't generate a response.)";
+       console.error('Gemini API Error Response:', geminiData);
+       replyText = "抱歉，我无法生成回复。可能是内容被安全过滤或接口错误。";
     }
 
     // Discord message limit is 2000 characters
@@ -102,7 +117,7 @@ async function handleAskCommand(prompt: string, token: string, env: Env) {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        content: "请求 Gemini API 时发生错误。 (An error occurred while communicating with Gemini API.)"
+        content: "请求 Gemini API 时发生网络错误。"
       })
     });
   }
