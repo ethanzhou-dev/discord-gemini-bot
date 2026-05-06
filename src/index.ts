@@ -98,13 +98,25 @@ async function handleAskCommand(prompt: string, token: string, env: Env) {
     });
 
     const geminiData: any = await geminiRes.json();
-    let replyText = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text;
+    let replyText = "";
     
-    if (!replyText) {
-       console.error('Gemini API Error Response:', JSON.stringify(geminiData, null, 2));
-       // If there's an error message from Google, show it to the user
-       const errorMessage = geminiData?.error?.message || "未知错误 (Unknown error)";
-       replyText = `抱歉，我无法生成回复。\nAPI 报错信息: ${errorMessage}`;
+    if (!geminiRes.ok) {
+       console.error('Gemini API Error:', JSON.stringify(geminiData, null, 2));
+       const errorMsg = geminiData?.error?.message || JSON.stringify(geminiData);
+       replyText = `抱歉，Gemini API 返回了错误。\n状态码: ${geminiRes.status}\n信息: ${errorMsg}`;
+    } else {
+       replyText = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text;
+       
+       if (!replyText) {
+          // 检查是否被安全过滤器拦截
+          const finishReason = geminiData?.candidates?.[0]?.finishReason;
+          if (finishReason && finishReason !== 'STOP') {
+             replyText = `抱歉，内容生成被拦截。原因: ${finishReason}`;
+          } else {
+             console.error('Gemini API Unexpected Response:', JSON.stringify(geminiData, null, 2));
+             replyText = `抱歉，收到意外的 API 响应格式。\n响应内容: ${JSON.stringify(geminiData).substring(0, 500)}`;
+          }
+       }
     }
 
     // Discord message limit is 2000 characters
