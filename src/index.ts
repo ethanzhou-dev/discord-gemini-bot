@@ -47,7 +47,8 @@ export default {
       const commandName = interaction.data.name;
 
       if (commandName === 'ask') {
-        const prompt = interaction.data.options?.find((opt: any) => opt.name === '问题')?.value;
+        const options = interaction.data.options;
+        const prompt = options?.[0]?.value || options?.find((opt: any) => opt.name === '问题')?.value;
 
         // DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE
         const response = Response.json({
