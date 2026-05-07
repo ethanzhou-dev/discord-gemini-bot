@@ -92,13 +92,34 @@ async function handleAskCommand(prompt: string, token: string, env: Env) {
       };
     }
 
-    const geminiRes = await fetch(geminiUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(requestBody)
-    });
+    let geminiRes: Response;
+    let geminiData: any;
+    let retries = 0;
+    const maxRetries = 3;
 
-    const geminiData: any = await geminiRes.json();
+    while (true) {
+      geminiRes = await fetch(geminiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody)
+      });
+
+      try {
+        geminiData = await geminiRes.json();
+      } catch (err) {
+        geminiData = { error: { message: `Invalid JSON response: ${geminiRes.statusText}` } };
+      }
+
+      // 如果请求成功，或者是客户端错误（如 400 Bad Request），或者达到最大重试次数，则跳出循环
+      if (geminiRes.ok || geminiRes.status < 500 || retries >= maxRetries) {
+        break;
+      }
+
+      retries++;
+      console.warn(`Gemini API returned error status ${geminiRes.status}, retrying ${retries}/${maxRetries}...`);
+      // 延迟重试：1秒, 2秒, 3秒
+      await new Promise(resolve => setTimeout(resolve, 1000 * retries));
+    }
     let replyText = "";
     
     if (!geminiRes.ok) {
