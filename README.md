@@ -9,7 +9,7 @@
 | `DISCORD_APPLICATION_ID` | Discord 应用的 Application ID | 是 | - |
 | `DISCORD_PUBLIC_KEY` | Discord 应用的 Public Key | 是 | - |
 | `GEMINI_API_KEY` | Google Gemini API 密钥 | 是 | - |
-| `GEMINI_MODEL` | 使用的 Gemini 模型版本 | 否 | `gemini-1.5-flash` |
+| `GEMINI_MODEL` | 使用的 Gemini 模型版本 | 否 | - |
 | `SYSTEM_PROMPT` | 机器人行为设定 (System Prompt) | 否 | - |
 
 ## 📝 使用方法
