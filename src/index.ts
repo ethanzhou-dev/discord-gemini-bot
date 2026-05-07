@@ -46,9 +46,19 @@ export default {
     if (interaction.type === 2) { // InteractionType.APPLICATION_COMMAND
       const commandName = interaction.data.name;
 
-      if (commandName === 'ask') {
-        const options = interaction.data.options;
-        const prompt = options?.[0]?.value || options?.find((opt: any) => opt.name === '问题')?.value;
+      if (commandName === 'ask' || commandName === 'Ask Gemini') {
+        let prompt = "";
+        
+        if (commandName === 'ask') {
+          const options = interaction.data.options;
+          prompt = options?.[0]?.value || options?.find((opt: any) => opt.name === '问题')?.value;
+        } else if (commandName === 'Ask Gemini') {
+          const targetId = interaction.data.target_id;
+          const messages = interaction.data.resolved?.messages;
+          if (messages && messages[targetId]) {
+            prompt = messages[targetId].content;
+          }
+        }
 
         // DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE
         const response = Response.json({
@@ -59,7 +69,7 @@ export default {
         if (prompt) {
           ctx.waitUntil(handleAskCommand(prompt, interaction.token, env));
         } else {
-          ctx.waitUntil(handleAskCommand("你好", interaction.token, env)); // Default prompt if somehow empty
+          ctx.waitUntil(handleAskCommand("无法读取消息内容或内容为空。", interaction.token, env)); // Default prompt if somehow empty
         }
         
         return response;

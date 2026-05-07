@@ -19,6 +19,10 @@ const commands = [
         required: true,
       }
     ]
+  },
+  {
+    name: 'Ask Gemini',
+    type: 3, // MESSAGE
   }
 ];
 
