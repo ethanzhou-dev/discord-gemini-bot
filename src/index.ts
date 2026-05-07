@@ -102,40 +102,51 @@ async function handleAskCommand(prompt: string, token: string, env: Env) {
       };
     }
 
-    let geminiRes: Response;
+    let geminiRes: Response | undefined;
     let geminiData: any;
     let retries = 0;
     const maxRetries = 3;
 
-    while (true) {
-      geminiRes = await fetch(geminiUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestBody)
-      });
+    // Use an AbortController to enforce a 25-second timeout
+    // Cloudflare Workers (free tier) typically terminate after 30s of wall-clock time
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 25000);
 
-      try {
-        geminiData = await geminiRes.json();
-      } catch (err) {
-        geminiData = { error: { message: `Invalid JSON response: ${geminiRes.statusText}` } };
+    try {
+      while (true) {
+        geminiRes = await fetch(geminiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(requestBody),
+          signal: controller.signal
+        });
+
+        try {
+          geminiData = await geminiRes.json();
+        } catch (err) {
+          geminiData = { error: { message: `Invalid JSON response: ${geminiRes.statusText}` } };
+        }
+
+        // 如果请求成功，或者是客户端错误（如 400 Bad Request），或者达到最大重试次数，则跳出循环
+        if (geminiRes.ok || geminiRes.status < 500 || retries >= maxRetries) {
+          break;
+        }
+
+        retries++;
+        console.warn(`Gemini API returned error status ${geminiRes.status}, retrying ${retries}/${maxRetries}...`);
+        // 延迟重试：1秒, 2秒, 3秒
+        await new Promise(resolve => setTimeout(resolve, 1000 * retries));
       }
-
-      // 如果请求成功，或者是客户端错误（如 400 Bad Request），或者达到最大重试次数，则跳出循环
-      if (geminiRes.ok || geminiRes.status < 500 || retries >= maxRetries) {
-        break;
-      }
-
-      retries++;
-      console.warn(`Gemini API returned error status ${geminiRes.status}, retrying ${retries}/${maxRetries}...`);
-      // 延迟重试：1秒, 2秒, 3秒
-      await new Promise(resolve => setTimeout(resolve, 1000 * retries));
+    } finally {
+      clearTimeout(timeoutId);
     }
+
     let replyText = "";
     
-    if (!geminiRes.ok) {
+    if (!geminiRes || !geminiRes.ok) {
        console.error('Gemini API Error:', JSON.stringify(geminiData, null, 2));
        const errorMsg = geminiData?.error?.message || JSON.stringify(geminiData);
-       replyText = `抱歉，Gemini API 返回了错误。\n状态码: ${geminiRes.status}\n信息: ${errorMsg}`;
+       replyText = `抱歉，Gemini API 返回了错误。\n状态码: ${geminiRes?.status || 'Unknown'}\n信息: ${errorMsg}`;
     } else {
        const parts = geminiData?.candidates?.[0]?.content?.parts;
        if (Array.isArray(parts)) {
@@ -166,23 +177,34 @@ async function handleAskCommand(prompt: string, token: string, env: Env) {
 
     // 2. Send the actual generated text to edit the deferred response
     const discordUrl = `https://discord.com/api/v10/webhooks/${env.DISCORD_APPLICATION_ID}/${token}/messages/@original`;
-    await fetch(discordUrl, {
+    const patchRes = await fetch(discordUrl, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         content: replyText
       })
     });
-  } catch (e) {
+    
+    if (!patchRes.ok) {
+        console.error('Failed to update Discord message:', patchRes.status, await patchRes.text());
+    }
+  } catch (e: any) {
     console.error(e);
+    let errorMessage = "请求 Gemini API 时发生网络错误。";
+    if (e.name === 'AbortError') {
+       errorMessage = "请求超时 (Gemini API 响应时间超过25秒)。请尝试更简单的问题。";
+    }
     // Send error message to Discord
     const discordUrl = `https://discord.com/api/v10/webhooks/${env.DISCORD_APPLICATION_ID}/${token}/messages/@original`;
-    await fetch(discordUrl, {
+    const patchRes = await fetch(discordUrl, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        content: "请求 Gemini API 时发生网络错误。"
+        content: errorMessage
       })
     });
+    if (!patchRes.ok) {
+        console.error('Failed to send error message to Discord:', patchRes.status, await patchRes.text());
+    }
   }
 }
