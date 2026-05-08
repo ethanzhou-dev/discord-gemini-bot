@@ -250,8 +250,10 @@ async function handleAskCommand(prompt: string, token: string, env: Env, channel
     }
 
     let replyText = "";
+    let isError = false;
     
     if (!geminiRes || !geminiRes.ok) {
+       isError = true;
        console.error('Gemini API Error:', JSON.stringify(geminiData, null, 2));
        const errorMsg = geminiData?.error?.message || JSON.stringify(geminiData);
        replyText = `抱歉，AI 服务返回了错误。\n状态码: ${geminiRes?.status || 'Unknown'}\n信息: ${errorMsg}`;
@@ -266,6 +268,7 @@ async function handleAskCommand(prompt: string, token: string, env: Env, channel
        }
        
        if (!replyText) {
+          isError = true;
           const finishReason = geminiData?.candidates?.[0]?.finishReason;
           if (finishReason && finishReason !== 'STOP') {
              replyText = `抱歉，内容生成被拦截。原因: ${finishReason}`;
@@ -276,7 +279,7 @@ async function handleAskCommand(prompt: string, token: string, env: Env, channel
        }
     }
 
-    if (replyText && env.MEMORY_KV) {
+    if (replyText && env.MEMORY_KV && !isError) {
         const MAX_HISTORY_LENGTH = 60;
         history.push({
             role: "model",
