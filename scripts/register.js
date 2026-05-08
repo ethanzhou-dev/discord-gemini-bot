@@ -21,11 +21,6 @@ const commands = [
     ]
   },
   {
-    name: 'clear',
-    description: '清除对话记忆 (Clear your conversation)',
-    type: 1,
-  },
-  {
     name: 'Ask Bot',
     type: 3,
   }

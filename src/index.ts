@@ -46,16 +46,6 @@ export default {
       const userObj = interaction.member?.user || interaction.user;
       const userName = interaction.member?.nick || userObj?.global_name || userObj?.username || 'Unknown';
 
-      if (commandName === 'clear') {
-        if (env.MEMORY_KV) {
-            ctx.waitUntil(env.MEMORY_KV.delete(`history_${channelId}`));
-        }
-        return Response.json({
-          type: 4,
-          data: { content: '✅ 当前频道的对话记忆已清除' }
-        });
-      }
-
       if (commandName === 'ask' || commandName === 'Ask Bot') {
         let prompt = "";
         
@@ -194,7 +184,7 @@ async function handleAskCommand(prompt: string, token: string, env: Env, channel
     }
 
     if (replyText && env.MEMORY_KV) {
-        const MAX_HISTORY_LENGTH = 50;
+        const MAX_HISTORY_LENGTH = 60;
         history.push({
             role: "model",
             parts: [{ text: replyText }]
