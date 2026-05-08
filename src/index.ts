@@ -265,6 +265,11 @@ async function handleAskCommand(prompt: string, token: string, env: Env, channel
             .map((part: any) => part.text || "")
             .join("")
             .trim();
+            
+          replyText = replyText.replace(/\$\\rightarrow\$/g, '->')
+                               .replace(/\\rightarrow/g, '->')
+                               .replace(/\$\\Rightarrow\$/g, '=>')
+                               .replace(/\\Rightarrow/g, '=>');
        }
        
        if (!replyText) {
@@ -280,7 +285,7 @@ async function handleAskCommand(prompt: string, token: string, env: Env, channel
     }
 
     if (replyText && env.MEMORY_KV && !isError) {
-        const MAX_HISTORY_LENGTH = 60;
+        const MAX_HISTORY_LENGTH = 50;
         history.push({
             role: "model",
             parts: [{ text: replyText }]
