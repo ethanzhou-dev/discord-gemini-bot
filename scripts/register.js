@@ -22,11 +22,12 @@ const commands = [
   },
   {
     name: 'clear',
-    description: '清除当前用户的对话记忆 (Clear your conversation memory)',
+    description: '清除对话记忆 (Clear your conversation)',
     type: 1, // CHAT_INPUT
   },
   {
-    name: 'Ask Gemini',
+    name: 'Ask Bot',
+    description: '向智能体提问 (Ask AI a question)',
     type: 3, // MESSAGE
   }
 ];

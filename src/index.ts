@@ -54,7 +54,7 @@ export default {
         }
         return Response.json({
           type: 4, // CHANNEL_MESSAGE_WITH_SOURCE
-          data: { content: '✅ 你的对话记忆已清除。 (Your conversation memory has been cleared.)' }
+          data: { content: '✅ 你的对话记忆已清除' }
         });
       }
 
