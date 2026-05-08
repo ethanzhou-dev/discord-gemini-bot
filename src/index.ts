@@ -58,13 +58,13 @@ export default {
         });
       }
 
-      if (commandName === 'ask' || commandName === 'Ask Gemini') {
+      if (commandName === 'ask' || commandName === 'Ask Bot') {
         let prompt = "";
         
         if (commandName === 'ask') {
           const options = interaction.data.options;
           prompt = options?.[0]?.value || options?.find((opt: any) => opt.name === '问题')?.value;
-        } else if (commandName === 'Ask Gemini') {
+        } else if (commandName === 'Ask Bot') {
           const targetId = interaction.data.target_id;
           const messages = interaction.data.resolved?.messages;
           if (messages && messages[targetId]) {
@@ -176,7 +176,7 @@ async function handleAskCommand(prompt: string, token: string, env: Env, userId?
     if (!geminiRes || !geminiRes.ok) {
        console.error('Gemini API Error:', JSON.stringify(geminiData, null, 2));
        const errorMsg = geminiData?.error?.message || JSON.stringify(geminiData);
-       replyText = `抱歉，Gemini API 返回了错误。\n状态码: ${geminiRes?.status || 'Unknown'}\n信息: ${errorMsg}`;
+       replyText = `抱歉，AI 服务返回了错误。\n状态码: ${geminiRes?.status || 'Unknown'}\n信息: ${errorMsg}`;
     } else {
        const parts = geminiData?.candidates?.[0]?.content?.parts;
        if (Array.isArray(parts)) {
@@ -268,9 +268,9 @@ async function handleAskCommand(prompt: string, token: string, env: Env, userId?
     }
   } catch (e: any) {
     console.error(e);
-    let errorMessage = "请求 Gemini API 时发生网络错误。";
+    let errorMessage = "请求 AI 服务时发生网络错误。";
     if (e.name === 'AbortError') {
-       errorMessage = "请求超时 (Gemini API 响应时间超过25秒)。请尝试更简单的问题。";
+       errorMessage = "请求超时 (AI 服务响应时间超过25秒)。请尝试更简单的问题。";
     }
     // Send error message to Discord
     const discordUrl = `https://discord.com/api/v10/webhooks/${env.DISCORD_APPLICATION_ID}/${token}/messages/@original`;
