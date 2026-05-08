@@ -167,7 +167,8 @@ export default {
           }
 
           let finalPrompt = `[用户 ${userName}]: ${question}\n\n${quotedText}`;
-          await handleAskCommand(finalPrompt, interaction.token, env, channelId);
+          let displayMessage = `> **提问:** ${question}`;
+          await handleAskCommand(finalPrompt, interaction.token, env, channelId, displayMessage);
         })());
         
         return response;
@@ -178,7 +179,7 @@ export default {
   }
 };
 
-async function handleAskCommand(prompt: string, token: string, env: Env, channelId: string) {
+async function handleAskCommand(prompt: string, token: string, env: Env, channelId: string, displayMessage?: string) {
   try {
     const model = env.GEMINI_MODEL || 'gemini-3.1-flash';
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${env.GEMINI_API_KEY}`;
@@ -287,6 +288,10 @@ async function handleAskCommand(prompt: string, token: string, env: Env, channel
         }
         
         await env.MEMORY_KV.put(historyKey, JSON.stringify(history)).catch(console.error);
+    }
+
+    if (displayMessage) {
+        replyText = `${displayMessage}\n\n${replyText}`;
     }
 
     const maxLength = 2000;
