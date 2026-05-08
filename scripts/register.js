@@ -10,12 +10,12 @@ const commands = [
   {
     name: 'ask',
     description: '向智能体提问 (Ask AI a question)',
-    type: 1, // CHAT_INPUT
+    type: 1,
     options: [
       {
         name: '问题',
         description: '你的问题 (Your question)',
-        type: 3, // STRING
+        type: 3,
         required: true,
       }
     ]
@@ -23,11 +23,11 @@ const commands = [
   {
     name: 'clear',
     description: '清除对话记忆 (Clear your conversation)',
-    type: 1, // CHAT_INPUT
+    type: 1,
   },
   {
     name: 'Ask Bot',
-    type: 3, // MESSAGE
+    type: 3,
   }
 ];
 
