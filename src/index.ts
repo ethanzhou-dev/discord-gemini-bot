@@ -7,6 +7,7 @@ export interface Env {
   // 可选配置：人设和模型
   SYSTEM_PROMPT?: string;
   GEMINI_MODEL?: string;
+  MEMORY_KV: any;
 }
 
 export default {
@@ -45,6 +46,17 @@ export default {
     // 3. Handle Command Application
     if (interaction.type === 2) { // InteractionType.APPLICATION_COMMAND
       const commandName = interaction.data.name;
+      const userId = interaction.member?.user?.id || interaction.user?.id;
+
+      if (commandName === 'clear') {
+        if (userId && env.MEMORY_KV) {
+            ctx.waitUntil(env.MEMORY_KV.delete(`history_${userId}`));
+        }
+        return Response.json({
+          type: 4, // CHANNEL_MESSAGE_WITH_SOURCE
+          data: { content: '✅ 你的对话记忆已清除。 (Your conversation memory has been cleared.)' }
+        });
+      }
 
       if (commandName === 'ask' || commandName === 'Ask Gemini') {
         let prompt = "";
@@ -67,9 +79,9 @@ export default {
 
         // Use ctx.waitUntil to process the Gemini request in the background
         if (prompt) {
-          ctx.waitUntil(handleAskCommand(prompt, interaction.token, env));
+          ctx.waitUntil(handleAskCommand(prompt, interaction.token, env, userId));
         } else {
-          ctx.waitUntil(handleAskCommand("无法读取消息内容或内容为空。", interaction.token, env)); // Default prompt if somehow empty
+          ctx.waitUntil(handleAskCommand("无法读取消息内容或内容为空。", interaction.token, env, userId)); // Default prompt if somehow empty
         }
         
         return response;
@@ -80,7 +92,7 @@ export default {
   }
 };
 
-async function handleAskCommand(prompt: string, token: string, env: Env) {
+async function handleAskCommand(prompt: string, token: string, env: Env, userId?: string) {
   try {
     // 1. Request Gemini API
     const model = env.GEMINI_MODEL || 'gemini-1.5-flash';
@@ -89,11 +101,29 @@ async function handleAskCommand(prompt: string, token: string, env: Env) {
     // 确保 prompt 不为空
     const safePrompt = (prompt && prompt.trim() !== '') ? prompt : "你好";
 
+    // 2. 读取历史记录
+    let history: any[] = [];
+    const historyKey = `history_${userId}`;
+    if (userId && env.MEMORY_KV) {
+        const historyStr = await env.MEMORY_KV.get(historyKey);
+        if (historyStr) {
+            try {
+                history = JSON.parse(historyStr);
+            } catch (e) {
+                console.error("Failed to parse history from KV", e);
+            }
+        }
+    }
+
+    // 将当前用户的 prompt 加入历史记录
+    history.push({
+        role: "user",
+        parts: [{ text: safePrompt }]
+    });
+
     // 构建请求体
     const requestBody: any = {
-      contents: [{ 
-        parts: [{ text: safePrompt }] 
-      }]
+      contents: history
     };
     
     if (env.SYSTEM_PROMPT) {
@@ -168,6 +198,22 @@ async function handleAskCommand(prompt: string, token: string, env: Env) {
              replyText = `抱歉，收到意外的 API 响应格式。\n响应内容: ${JSON.stringify(geminiData).substring(0, 500)}`;
           }
        }
+    }
+
+    // 保存对话记录到 KV
+    if (replyText && userId && env.MEMORY_KV) {
+        const MAX_HISTORY_LENGTH = 20; // 保存最近10轮对话
+        history.push({
+            role: "model",
+            parts: [{ text: replyText }]
+        });
+        
+        if (history.length > MAX_HISTORY_LENGTH) {
+            history = history.slice(history.length - MAX_HISTORY_LENGTH);
+        }
+        
+        const historyKey = `history_${userId}`;
+        await env.MEMORY_KV.put(historyKey, JSON.stringify(history), { expirationTtl: 86400 }).catch(console.error); // 24小时过期
     }
 
     // Discord message limit is 2000 characters. Split text into chunks.
