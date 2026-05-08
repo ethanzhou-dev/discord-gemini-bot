@@ -27,7 +27,6 @@ const commands = [
   },
   {
     name: 'Ask Bot',
-    description: '向智能体提问 (Ask AI a question)',
     type: 3, // MESSAGE
   }
 ];
