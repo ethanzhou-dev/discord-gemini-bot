@@ -170,23 +170,55 @@ async function handleAskCommand(prompt: string, token: string, env: Env) {
        }
     }
 
-    // Discord message limit is 2000 characters
-    if (replyText.length > 2000) {
-        replyText = replyText.substring(0, 1997) + '...';
+    // Discord message limit is 2000 characters. Split text into chunks.
+    const maxLength = 2000;
+    const chunks: string[] = [];
+    let remainingText = replyText;
+    
+    while (remainingText.length > 0) {
+      if (remainingText.length <= maxLength) {
+        chunks.push(remainingText);
+        break;
+      }
+      
+      // Try to find a newline to break at, avoiding breaking words/sentences if possible
+      let breakIndex = remainingText.lastIndexOf('\n', maxLength);
+      // If no newline in the first 2000 chars, or it's too early, hard break at 2000
+      if (breakIndex === -1 || breakIndex < maxLength * 0.5) {
+         breakIndex = maxLength;
+      }
+      
+      chunks.push(remainingText.substring(0, breakIndex));
+      remainingText = remainingText.substring(breakIndex).replace(/^\n+/, ''); // remove leading newlines
     }
 
-    // 2. Send the actual generated text to edit the deferred response
+    // 2. Send the first chunk to edit the deferred response
     const discordUrl = `https://discord.com/api/v10/webhooks/${env.DISCORD_APPLICATION_ID}/${token}/messages/@original`;
     const patchRes = await fetch(discordUrl, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        content: replyText
+        content: chunks[0] || "No content generated."
       })
     });
     
     if (!patchRes.ok) {
         console.error('Failed to update Discord message:', patchRes.status, await patchRes.text());
+    }
+
+    // 3. Send subsequent chunks as follow-up messages
+    for (let i = 1; i < chunks.length; i++) {
+      const followUpUrl = `https://discord.com/api/v10/webhooks/${env.DISCORD_APPLICATION_ID}/${token}`;
+      const postRes = await fetch(followUpUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          content: chunks[i]
+        })
+      });
+      if (!postRes.ok) {
+        console.error(`Failed to send follow-up message ${i}:`, postRes.status, await postRes.text());
+      }
     }
   } catch (e: any) {
     console.error(e);

@@ -9,7 +9,7 @@ if (!TOKEN || !APP_ID) {
 const commands = [
   {
     name: 'ask',
-    description: '向 Gemini AI 提问 (Ask Gemini AI a question)',
+    description: '向智能体提问 (Ask AI a question)',
     type: 1, // CHAT_INPUT
     options: [
       {
