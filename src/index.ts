@@ -46,6 +46,55 @@ export default {
       const userObj = interaction.member?.user || interaction.user;
       const userName = interaction.member?.nick || userObj?.global_name || userObj?.username || 'Unknown';
 
+      if (commandName === 'Quote & Ask') {
+        const targetId = interaction.data.target_id;
+        const messages = interaction.data.resolved?.messages;
+        let quotedText = "";
+        
+        if (messages && messages[targetId]) {
+          const targetMsg = messages[targetId];
+          const targetAuthor = targetMsg.author?.global_name || targetMsg.author?.username || 'Unknown User';
+          
+          if (userObj?.id && targetMsg.author?.id === userObj.id) {
+            quotedText = targetMsg.content;
+          } else {
+            quotedText = `(引用了 ${targetAuthor} 的消息: "${targetMsg.content}")`;
+          }
+          if (quotedText.length > 4000) {
+            quotedText = quotedText.substring(0, 3995) + '...';
+          }
+        }
+        
+        const quoteKey = `quote_${interaction.id}`;
+        if (env.MEMORY_KV) {
+          ctx.waitUntil(env.MEMORY_KV.put(quoteKey, quotedText, { expirationTtl: 300 }).catch(console.error));
+        }
+
+        return Response.json({
+          type: 9,
+          data: {
+            title: "引用并提问",
+            custom_id: `quote_ask_modal:${quoteKey}`,
+            components: [
+              {
+                type: 1,
+                components: [
+                  {
+                    type: 4,
+                    custom_id: "question",
+                    label: "你的问题",
+                    style: 2,
+                    min_length: 1,
+                    max_length: 1000,
+                    required: true
+                  }
+                ]
+              }
+            ]
+          }
+        });
+      }
+
       if (commandName === 'ask' || commandName === 'Ask Bot') {
         let prompt = "";
         
@@ -78,6 +127,48 @@ export default {
         } else {
           ctx.waitUntil(handleAskCommand(`[用户 ${userName}]: 无法读取消息内容或内容为空。`, interaction.token, env, channelId));
         }
+        
+        return response;
+      }
+    }
+
+    if (interaction.type === 5) {
+      const customId = interaction.data?.custom_id;
+      if (customId && customId.startsWith('quote_ask_modal:')) {
+        const quoteKey = customId.split(':')[1];
+        let quotedText = "";
+        
+        const channelId = interaction.channel_id || interaction.channel?.id || 'global';
+        const userObj = interaction.member?.user || interaction.user;
+        const userName = interaction.member?.nick || userObj?.global_name || userObj?.username || 'Unknown';
+        
+        const response = Response.json({
+          type: 5,
+        });
+        
+        ctx.waitUntil((async () => {
+          if (env.MEMORY_KV) {
+             quotedText = await env.MEMORY_KV.get(quoteKey) || "(无法获取引用的消息，可能已过期)";
+          } else {
+             quotedText = "(KV 存储未配置，无法获取引用的消息)";
+          }
+
+          const components = interaction.data.components;
+          let question = "";
+          
+          for (const row of components) {
+            if (row.components) {
+              for (const comp of row.components) {
+                if (comp.custom_id === 'question') {
+                  question = comp.value;
+                }
+              }
+            }
+          }
+
+          let finalPrompt = `[用户 ${userName}]: ${question}\n\n${quotedText}`;
+          await handleAskCommand(finalPrompt, interaction.token, env, channelId);
+        })());
         
         return response;
       }

@@ -23,6 +23,10 @@ const commands = [
   {
     name: 'Ask Bot',
     type: 3,
+  },
+  {
+    name: 'Quote & Ask',
+    type: 3,
   }
 ];
 
