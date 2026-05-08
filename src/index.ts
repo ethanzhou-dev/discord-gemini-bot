@@ -42,15 +42,17 @@ export default {
 
     if (interaction.type === 2) {
       const commandName = interaction.data.name;
-      const userId = interaction.member?.user?.id || interaction.user?.id;
+      const channelId = interaction.channel_id || interaction.channel?.id || 'global';
+      const userObj = interaction.member?.user || interaction.user;
+      const userName = interaction.member?.nick || userObj?.global_name || userObj?.username || 'Unknown';
 
       if (commandName === 'clear') {
-        if (userId && env.MEMORY_KV) {
-            ctx.waitUntil(env.MEMORY_KV.delete(`history_${userId}`));
+        if (env.MEMORY_KV) {
+            ctx.waitUntil(env.MEMORY_KV.delete(`history_${channelId}`));
         }
         return Response.json({
           type: 4,
-          data: { content: '✅ 你的对话记忆已清除' }
+          data: { content: '✅ 当前频道的对话记忆已清除' }
         });
       }
 
@@ -64,7 +66,9 @@ export default {
           const targetId = interaction.data.target_id;
           const messages = interaction.data.resolved?.messages;
           if (messages && messages[targetId]) {
-            prompt = messages[targetId].content;
+            const targetMsg = messages[targetId];
+            const targetAuthor = targetMsg.author?.global_name || targetMsg.author?.username || 'Unknown User';
+            prompt = `(引用了 ${targetAuthor} 的消息: "${targetMsg.content}")`;
           }
         }
 
@@ -72,10 +76,16 @@ export default {
           type: 5,
         });
 
+        let finalPrompt = "";
         if (prompt) {
-          ctx.waitUntil(handleAskCommand(prompt, interaction.token, env, userId));
+          if (commandName === 'Ask Bot') {
+             finalPrompt = `[用户 ${userName}]: 请分析这条消息 ${prompt}`;
+          } else {
+             finalPrompt = `[用户 ${userName}]: ${prompt}`;
+          }
+          ctx.waitUntil(handleAskCommand(finalPrompt, interaction.token, env, channelId));
         } else {
-          ctx.waitUntil(handleAskCommand("无法读取消息内容或内容为空。", interaction.token, env, userId));
+          ctx.waitUntil(handleAskCommand(`[用户 ${userName}]: 无法读取消息内容或内容为空。`, interaction.token, env, channelId));
         }
         
         return response;
@@ -86,7 +96,7 @@ export default {
   }
 };
 
-async function handleAskCommand(prompt: string, token: string, env: Env, userId?: string) {
+async function handleAskCommand(prompt: string, token: string, env: Env, channelId: string) {
   try {
     const model = env.GEMINI_MODEL || 'gemini-1.5-flash';
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${env.GEMINI_API_KEY}`;
@@ -94,8 +104,8 @@ async function handleAskCommand(prompt: string, token: string, env: Env, userId?
     const safePrompt = (prompt && prompt.trim() !== '') ? prompt : "你好";
 
     let history: any[] = [];
-    const historyKey = `history_${userId}`;
-    if (userId && env.MEMORY_KV) {
+    const historyKey = `history_${channelId}`;
+    if (env.MEMORY_KV) {
         const historyStr = await env.MEMORY_KV.get(historyKey);
         if (historyStr) {
             try {
@@ -183,7 +193,7 @@ async function handleAskCommand(prompt: string, token: string, env: Env, userId?
        }
     }
 
-    if (replyText && userId && env.MEMORY_KV) {
+    if (replyText && env.MEMORY_KV) {
         const MAX_HISTORY_LENGTH = 50;
         history.push({
             role: "model",
@@ -194,7 +204,6 @@ async function handleAskCommand(prompt: string, token: string, env: Env, userId?
             history = history.slice(history.length - MAX_HISTORY_LENGTH);
         }
         
-        const historyKey = `history_${userId}`;
         await env.MEMORY_KV.put(historyKey, JSON.stringify(history)).catch(console.error);
     }
 
