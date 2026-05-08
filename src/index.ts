@@ -58,7 +58,12 @@ export default {
           if (messages && messages[targetId]) {
             const targetMsg = messages[targetId];
             const targetAuthor = targetMsg.author?.global_name || targetMsg.author?.username || 'Unknown User';
-            prompt = `(引用了 ${targetAuthor} 的消息: "${targetMsg.content}")`;
+            
+            if (userObj?.id && targetMsg.author?.id === userObj.id) {
+              prompt = targetMsg.content;
+            } else {
+              prompt = `(引用了 ${targetAuthor} 的消息: "${targetMsg.content}")`;
+            }
           }
         }
 
@@ -68,11 +73,7 @@ export default {
 
         let finalPrompt = "";
         if (prompt) {
-          if (commandName === 'Ask Bot') {
-             finalPrompt = `[用户 ${userName}]: 请分析这条消息 ${prompt}`;
-          } else {
-             finalPrompt = `[用户 ${userName}]: ${prompt}`;
-          }
+          finalPrompt = `[用户 ${userName}]: ${prompt}`;
           ctx.waitUntil(handleAskCommand(finalPrompt, interaction.token, env, channelId));
         } else {
           ctx.waitUntil(handleAskCommand(`[用户 ${userName}]: 无法读取消息内容或内容为空。`, interaction.token, env, channelId));
@@ -88,7 +89,7 @@ export default {
 
 async function handleAskCommand(prompt: string, token: string, env: Env, channelId: string) {
   try {
-    const model = env.GEMINI_MODEL || 'gemini-1.5-flash';
+    const model = env.GEMINI_MODEL || 'gemini-3.1-flash';
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${env.GEMINI_API_KEY}`;
     
     const safePrompt = (prompt && prompt.trim() !== '') ? prompt : "你好";
@@ -246,7 +247,7 @@ async function handleAskCommand(prompt: string, token: string, env: Env, channel
     console.error(e);
     let errorMessage = "请求 AI 服务时发生网络错误。";
     if (e.name === 'AbortError') {
-       errorMessage = "请求超时 (AI 服务响应时间超过25秒)。请尝试更简单的问题。";
+       errorMessage = "请求超时 (AI 服务响应时间超过25秒)";
     }
     const discordUrl = `https://discord.com/api/v10/webhooks/${env.DISCORD_APPLICATION_ID}/${token}/messages/@original`;
     const patchRes = await fetch(discordUrl, {
