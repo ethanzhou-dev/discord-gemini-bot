@@ -217,13 +217,13 @@ async function handleAskCommand(prompt: string, token: string, env: Env, channel
     let geminiRes: Response | undefined;
     let geminiData: any;
     let retries = 0;
-    const maxRetries = 3;
+    const maxRetries = 5;
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 25000);
+    while (true) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 25000);
 
-    try {
-      while (true) {
+      try {
         geminiRes = await fetch(geminiUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -236,17 +236,29 @@ async function handleAskCommand(prompt: string, token: string, env: Env, channel
         } catch (err) {
           geminiData = { error: { message: `Invalid JSON response: ${geminiRes.statusText}` } };
         }
-
-        if (geminiRes.ok || geminiRes.status < 500 || retries >= maxRetries) {
-          break;
+      } catch (fetchErr: any) {
+        clearTimeout(timeoutId);
+        if (fetchErr.name === 'AbortError' && retries < maxRetries) {
+          retries++;
+          console.warn(`Gemini API request timed out, retrying ${retries}/${maxRetries}...`);
+          await new Promise(resolve => setTimeout(resolve, 1000 * retries + Math.random() * 500));
+          continue;
         }
-
-        retries++;
-        console.warn(`Gemini API returned error status ${geminiRes.status}, retrying ${retries}/${maxRetries}...`);
-        await new Promise(resolve => setTimeout(resolve, 1000 * retries));
+        throw fetchErr;
+      } finally {
+        clearTimeout(timeoutId);
       }
-    } finally {
-      clearTimeout(timeoutId);
+
+      if (geminiRes.ok || geminiRes.status < 500 || retries >= maxRetries) {
+        break;
+      }
+
+      retries++;
+      console.warn(`Gemini API returned error status ${geminiRes.status}, retrying ${retries}/${maxRetries}...`);
+
+      // Exponential backoff with jitter: ~1.5s, ~3.5s, ~7.5s, ~15.5s, ...
+      const delay = Math.min(1000 * Math.pow(2, retries - 1), 15000) + Math.random() * 1000;
+      await new Promise(resolve => setTimeout(resolve, delay));
     }
 
     let replyText = "";
@@ -285,7 +297,7 @@ async function handleAskCommand(prompt: string, token: string, env: Env, channel
     }
 
     if (replyText && env.MEMORY_KV && !isError) {
-        const MAX_HISTORY_LENGTH = 50;
+        const MAX_HISTORY_LENGTH = 30;
         history.push({
             role: "model",
             parts: [{ text: replyText }]
