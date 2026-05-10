@@ -238,10 +238,16 @@ async function handleAskCommand(prompt: string, token: string, env: Env, channel
     let sanitizedHistory: any[] = [];
     let expectedRole = 'user';
     for (let i = history.length - 1; i >= 0; i--) {
-        if (history[i].role === expectedRole) {
-            sanitizedHistory.unshift(history[i]);
+        const h = history[i];
+        if (h && h.role === expectedRole && h.parts && h.parts.length > 0 && typeof h.parts[0].text === 'string' && h.parts[0].text.trim() !== '') {
+            sanitizedHistory.unshift(h);
             expectedRole = expectedRole === 'user' ? 'model' : 'user';
         }
+    }
+    
+    // Ensure history starts with a user message
+    if (sanitizedHistory.length > 0 && sanitizedHistory[0].role !== 'user') {
+        sanitizedHistory.shift();
     }
     history = sanitizedHistory;
 
@@ -249,6 +255,9 @@ async function handleAskCommand(prompt: string, token: string, env: Env, channel
     const MAX_HISTORY_LENGTH = 16;
     if (history.length > MAX_HISTORY_LENGTH) {
         history = history.slice(history.length - MAX_HISTORY_LENGTH);
+        if (history.length > 0 && history[0].role !== 'user') {
+            history.shift();
+        }
     }
 
     const requestBody: any = {
@@ -267,9 +276,9 @@ async function handleAskCommand(prompt: string, token: string, env: Env, channel
     let geminiRes: Response | undefined;
     let geminiData: any;
     let retries = 0;
-    const maxRetries = 1; // Only 1 retry to stay within time budget
+    const maxRetries = 2; // Allow up to 2 retries
 
-    while (true) {
+    while (retries <= maxRetries) {
       const timeElapsed = Date.now() - startTime;
       const timeRemaining = MAX_WORKER_TIME - timeElapsed;
       if (timeRemaining <= 3000) {
@@ -300,7 +309,6 @@ async function handleAskCommand(prompt: string, token: string, env: Env, channel
         if (fetchErr.name === 'AbortError' && retries < maxRetries && elapsedNow < MAX_WORKER_TIME - 5000) {
           retries++;
           console.warn(`Gemini API request timed out, retrying ${retries}/${maxRetries}...`);
-          // No sleep between retries - time is precious on Workers
           continue;
         }
         throw fetchErr;
@@ -308,7 +316,11 @@ async function handleAskCommand(prompt: string, token: string, env: Env, channel
         clearTimeout(timeoutId);
       }
 
-      if (geminiRes.ok || geminiRes.status < 500 || retries >= maxRetries) {
+      if (geminiRes.ok || (geminiRes.status < 500 && geminiRes.status !== 429)) {
+        break;
+      }
+
+      if (retries >= maxRetries) {
         break;
       }
 
