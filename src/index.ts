@@ -209,7 +209,7 @@ export default {
 
 async function handleAskCommand(prompt: string, token: string, env: Env, channelId: string, displayMessage?: string) {
   const startTime = Date.now();
-  const MAX_WORKER_TIME = 25000; // 25 seconds - leave buffer for Discord reply
+  const MAX_WORKER_TIME = 28000; // 28 seconds - leave buffer for Discord reply
   try {
     const model = env.GEMINI_MODEL || 'gemini-3.1-flash';
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${env.GEMINI_API_KEY}`;
@@ -271,7 +271,7 @@ async function handleAskCommand(prompt: string, token: string, env: Env, channel
 
       const controller = new AbortController();
       // Leave at least 3s for Discord reply after this request
-      const timeoutMs = Math.min(10000, timeRemaining - 3000);
+      const timeoutMs = timeRemaining - 3000;
       const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
       try {
