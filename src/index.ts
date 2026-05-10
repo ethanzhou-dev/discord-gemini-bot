@@ -312,7 +312,7 @@ async function handleAskCommand(prompt: string, token: string, env: Env, channel
 
       retries++;
       console.warn(`Gemini API returned error status ${geminiRes.status}, retrying ${retries}/${maxRetries}...`);
-      // No sleep - retry immediately
+      await new Promise(resolve => setTimeout(resolve, 1000)); // Brief sleep before retry
     }
 
     let replyText = "";
