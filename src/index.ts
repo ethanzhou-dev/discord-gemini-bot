@@ -55,10 +55,18 @@ export default {
           const targetMsg = messages[targetId];
           const targetAuthor = targetMsg.author?.global_name || targetMsg.author?.username || 'Unknown User';
           
+          let content = targetMsg.content;
+          if (!content && targetMsg.message_snapshots && targetMsg.message_snapshots.length > 0) {
+            const snapshotMessage = targetMsg.message_snapshots[0].message;
+            if (snapshotMessage && snapshotMessage.content) {
+              content = snapshotMessage.content;
+            }
+          }
+          
           if (userObj?.id && targetMsg.author?.id === userObj.id) {
-            quotedText = targetMsg.content;
+            quotedText = content;
           } else {
-            quotedText = `(引用了 ${targetAuthor} 的消息: "${targetMsg.content}")`;
+            quotedText = `(引用了 ${targetAuthor} 的消息: "${content}")`;
           }
           if (quotedText.length > 4000) {
             quotedText = quotedText.substring(0, 3995) + '...';
@@ -108,10 +116,18 @@ export default {
             const targetMsg = messages[targetId];
             const targetAuthor = targetMsg.author?.global_name || targetMsg.author?.username || 'Unknown User';
             
+            let content = targetMsg.content;
+            if (!content && targetMsg.message_snapshots && targetMsg.message_snapshots.length > 0) {
+              const snapshotMessage = targetMsg.message_snapshots[0].message;
+              if (snapshotMessage && snapshotMessage.content) {
+                content = snapshotMessage.content;
+              }
+            }
+            
             if (userObj?.id && targetMsg.author?.id === userObj.id) {
-              prompt = targetMsg.content;
+              prompt = content;
             } else {
-              prompt = `(引用了 ${targetAuthor} 的消息: "${targetMsg.content}")`;
+              prompt = `(引用了 ${targetAuthor} 的消息: "${content}")`;
             }
           }
         }
