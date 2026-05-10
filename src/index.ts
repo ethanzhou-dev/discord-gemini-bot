@@ -319,6 +319,14 @@ async function handleAskCommand(prompt: string, token: string, env: Env, channel
 
       retries++;
       console.warn(`Gemini API returned error status ${geminiRes.status}, retrying ${retries}/${maxRetries}...`);
+      
+      // If we are on our final retry and it's a 500-level error, the history payload might be deterministically crashing Gemini.
+      // Drop the history and only send the latest prompt as a last resort.
+      if (retries === maxRetries && geminiRes.status >= 500) {
+          console.warn("Dropping conversation history for final retry to bypass potential payload-induced 500 error.");
+          requestBody.contents = [{ role: "user", parts: [{ text: safePrompt }] }];
+      }
+
       await new Promise(resolve => setTimeout(resolve, 1000)); // Brief sleep before retry
     }
 
