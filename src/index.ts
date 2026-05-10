@@ -209,7 +209,7 @@ export default {
 
 async function handleAskCommand(prompt: string, token: string, env: Env, channelId: string, displayMessage?: string) {
   const startTime = Date.now();
-  const MAX_WORKER_TIME = 26000; // 26 seconds total limit to ensure we leave time to reply to Discord
+  const MAX_WORKER_TIME = 25000; // 25 seconds - leave buffer for Discord reply
   try {
     const model = env.GEMINI_MODEL || 'gemini-3.1-flash';
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${env.GEMINI_API_KEY}`;
@@ -234,8 +234,21 @@ async function handleAskCommand(prompt: string, token: string, env: Env, channel
         parts: [{ text: safePrompt }]
     });
 
+    // Trim history aggressively to reduce payload size and improve response time
+    const MAX_HISTORY_LENGTH = 16;
+    if (history.length > MAX_HISTORY_LENGTH) {
+        history = history.slice(history.length - MAX_HISTORY_LENGTH);
+    }
+    // Ensure history starts with a user message (Gemini requirement)
+    while (history.length > 0 && history[0].role !== 'user') {
+        history.shift();
+    }
+
     const requestBody: any = {
-      contents: history
+      contents: history,
+      generationConfig: {
+        maxOutputTokens: 1500, // Limit output length to speed up generation
+      }
     };
     
     if (env.SYSTEM_PROMPT) {
@@ -247,17 +260,18 @@ async function handleAskCommand(prompt: string, token: string, env: Env, channel
     let geminiRes: Response | undefined;
     let geminiData: any;
     let retries = 0;
-    const maxRetries = 2;
+    const maxRetries = 1; // Only 1 retry to stay within time budget
 
     while (true) {
       const timeElapsed = Date.now() - startTime;
       const timeRemaining = MAX_WORKER_TIME - timeElapsed;
-      if (timeRemaining <= 0) {
+      if (timeRemaining <= 3000) {
          throw new Error('Worker execution time limit exceeded');
       }
 
       const controller = new AbortController();
-      const timeoutMs = Math.min(15000, timeRemaining); // Max 15s per request
+      // Leave at least 3s for Discord reply after this request
+      const timeoutMs = Math.min(10000, timeRemaining - 3000);
       const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
       try {
@@ -276,9 +290,10 @@ async function handleAskCommand(prompt: string, token: string, env: Env, channel
       } catch (fetchErr: any) {
         clearTimeout(timeoutId);
         const elapsedNow = Date.now() - startTime;
-        if (fetchErr.name === 'AbortError' && retries < maxRetries && elapsedNow < MAX_WORKER_TIME - 2000) {
+        if (fetchErr.name === 'AbortError' && retries < maxRetries && elapsedNow < MAX_WORKER_TIME - 5000) {
           retries++;
           console.warn(`Gemini API request timed out, retrying ${retries}/${maxRetries}...`);
+          // No sleep between retries - time is precious on Workers
           continue;
         }
         throw fetchErr;
@@ -291,13 +306,13 @@ async function handleAskCommand(prompt: string, token: string, env: Env, channel
       }
 
       const elapsedNow = Date.now() - startTime;
-      if (elapsedNow > MAX_WORKER_TIME - 2000) {
+      if (elapsedNow > MAX_WORKER_TIME - 5000) {
          break;
       }
 
       retries++;
       console.warn(`Gemini API returned error status ${geminiRes.status}, retrying ${retries}/${maxRetries}...`);
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // No sleep - retry immediately
     }
 
     let replyText = "";
@@ -336,7 +351,6 @@ async function handleAskCommand(prompt: string, token: string, env: Env, channel
     }
 
     if (replyText && env.MEMORY_KV && !isError) {
-        const MAX_HISTORY_LENGTH = 30;
         history.push({
             role: "model",
             parts: [{ text: replyText }]
@@ -346,7 +360,8 @@ async function handleAskCommand(prompt: string, token: string, env: Env, channel
             history = history.slice(history.length - MAX_HISTORY_LENGTH);
         }
         
-        await env.MEMORY_KV.put(historyKey, JSON.stringify(history)).catch(console.error);
+        // Fire-and-forget KV write - don't await to save time
+        env.MEMORY_KV.put(historyKey, JSON.stringify(history)).catch(console.error);
     }
 
     if (displayMessage) {
@@ -402,7 +417,7 @@ async function handleAskCommand(prompt: string, token: string, env: Env, channel
     console.error(e);
     let errorMessage = "请求 AI 服务时发生网络错误。";
     if (e.name === 'AbortError' || e.message === 'Worker execution time limit exceeded') {
-       errorMessage = "请求超时 (AI 服务响应时间过长)";
+       errorMessage = "请求超时，正在重试... 请稍后再试。";
     }
     const discordUrl = `https://discord.com/api/v10/webhooks/${env.DISCORD_APPLICATION_ID}/${token}/messages/@original`;
     const patchRes = await fetch(discordUrl, {
