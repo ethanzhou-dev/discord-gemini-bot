@@ -234,14 +234,21 @@ async function handleAskCommand(prompt: string, token: string, env: Env, channel
         parts: [{ text: safePrompt }]
     });
 
+    // Ensure strictly alternating roles ending with the latest user prompt
+    let sanitizedHistory: any[] = [];
+    let expectedRole = 'user';
+    for (let i = history.length - 1; i >= 0; i--) {
+        if (history[i].role === expectedRole) {
+            sanitizedHistory.unshift(history[i]);
+            expectedRole = expectedRole === 'user' ? 'model' : 'user';
+        }
+    }
+    history = sanitizedHistory;
+
     // Trim history aggressively to reduce payload size and improve response time
     const MAX_HISTORY_LENGTH = 16;
     if (history.length > MAX_HISTORY_LENGTH) {
         history = history.slice(history.length - MAX_HISTORY_LENGTH);
-    }
-    // Ensure history starts with a user message (Gemini requirement)
-    while (history.length > 0 && history[0].role !== 'user') {
-        history.shift();
     }
 
     const requestBody: any = {
