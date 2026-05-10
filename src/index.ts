@@ -209,7 +209,7 @@ export default {
 
 async function handleAskCommand(prompt: string, token: string, env: Env, channelId: string, displayMessage?: string) {
   const startTime = Date.now();
-  const MAX_WORKER_TIME = 28000; // 28 seconds - leave buffer for Discord reply
+  const MAX_WORKER_TIME = 28000;
   try {
     const model = env.GEMINI_MODEL || 'gemini-3.1-flash';
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${env.GEMINI_API_KEY}`;
@@ -234,7 +234,6 @@ async function handleAskCommand(prompt: string, token: string, env: Env, channel
         parts: [{ text: safePrompt }]
     });
 
-    // Ensure strictly alternating roles ending with the latest user prompt
     let sanitizedHistory: any[] = [];
     let expectedRole = 'user';
     for (let i = history.length - 1; i >= 0; i--) {
@@ -245,13 +244,11 @@ async function handleAskCommand(prompt: string, token: string, env: Env, channel
         }
     }
     
-    // Ensure history starts with a user message
     if (sanitizedHistory.length > 0 && sanitizedHistory[0].role !== 'user') {
         sanitizedHistory.shift();
     }
     history = sanitizedHistory;
 
-    // Trim history aggressively to reduce payload size and improve response time
     const MAX_HISTORY_LENGTH = 16;
     if (history.length > MAX_HISTORY_LENGTH) {
         history = history.slice(history.length - MAX_HISTORY_LENGTH);
@@ -263,7 +260,7 @@ async function handleAskCommand(prompt: string, token: string, env: Env, channel
     const requestBody: any = {
       contents: history,
       generationConfig: {
-        maxOutputTokens: 1500, // Limit output length to speed up generation
+        maxOutputTokens: 1500,
       }
     };
     
@@ -276,7 +273,7 @@ async function handleAskCommand(prompt: string, token: string, env: Env, channel
     let geminiRes: Response | undefined;
     let geminiData: any;
     let retries = 0;
-    const maxRetries = 2; // Allow up to 2 retries
+    const maxRetries = 2;
 
     while (retries <= maxRetries) {
       const timeElapsed = Date.now() - startTime;
@@ -286,7 +283,6 @@ async function handleAskCommand(prompt: string, token: string, env: Env, channel
       }
 
       const controller = new AbortController();
-      // Leave at least 3s for Discord reply after this request
       const timeoutMs = timeRemaining - 3000;
       const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -332,14 +328,12 @@ async function handleAskCommand(prompt: string, token: string, env: Env, channel
       retries++;
       console.warn(`Gemini API returned error status ${geminiRes.status}, retrying ${retries}/${maxRetries}...`);
       
-      // If we are on our final retry and it's a 500-level error, the history payload might be deterministically crashing Gemini.
-      // Drop the history and only send the latest prompt as a last resort.
       if (retries === maxRetries && geminiRes.status >= 500) {
           console.warn("Dropping conversation history for final retry to bypass potential payload-induced 500 error.");
           requestBody.contents = [{ role: "user", parts: [{ text: safePrompt }] }];
       }
 
-      await new Promise(resolve => setTimeout(resolve, 1000)); // Brief sleep before retry
+      await new Promise(resolve => setTimeout(resolve, 1000));
     }
 
     let replyText = "";
@@ -387,7 +381,6 @@ async function handleAskCommand(prompt: string, token: string, env: Env, channel
             history = history.slice(history.length - MAX_HISTORY_LENGTH);
         }
         
-        // Fire-and-forget KV write - don't await to save time
         env.MEMORY_KV.put(historyKey, JSON.stringify(history)).catch(console.error);
     }
 
