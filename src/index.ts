@@ -136,7 +136,6 @@ export default {
       const customId = interaction.data?.custom_id;
       if (customId && customId.startsWith('quote_ask_modal:')) {
         const quoteKey = customId.split(':')[1];
-        let quotedText = "";
         
         const channelId = interaction.channel_id || interaction.channel?.id || 'global';
         const userObj = interaction.member?.user || interaction.user;
@@ -147,28 +146,41 @@ export default {
         });
         
         ctx.waitUntil((async () => {
-          if (env.MEMORY_KV) {
-             quotedText = await env.MEMORY_KV.get(quoteKey) || "(无法获取引用的消息，可能已过期)";
-          } else {
-             quotedText = "(KV 存储未配置，无法获取引用的消息)";
-          }
+          try {
+            let quotedText = "";
+            if (env.MEMORY_KV) {
+               quotedText = await env.MEMORY_KV.get(quoteKey) || "(无法获取引用的消息，可能已过期)";
+            } else {
+               quotedText = "(KV 存储未配置，无法获取引用的消息)";
+            }
 
-          const components = interaction.data.components;
-          let question = "";
-          
-          for (const row of components) {
-            if (row.components) {
-              for (const comp of row.components) {
-                if (comp.custom_id === 'question') {
-                  question = comp.value;
+            const components = interaction.data.components;
+            let question = "";
+            
+            for (const row of components) {
+              if (row.components) {
+                for (const comp of row.components) {
+                  if (comp.custom_id === 'question') {
+                    question = comp.value;
+                  }
                 }
               }
             }
-          }
 
-          let finalPrompt = `[用户 ${userName}]: ${question}\n\n${quotedText}`;
-          let displayMessage = `> **提问:** ${question}`;
-          await handleAskCommand(finalPrompt, interaction.token, env, channelId, displayMessage);
+            let finalPrompt = `[用户 ${userName}]: ${question}\n\n${quotedText}`;
+            let displayMessage = `> **提问:** ${question}`;
+            await handleAskCommand(finalPrompt, interaction.token, env, channelId, displayMessage);
+          } catch (e) {
+            console.error("Error in modal submit processing:", e);
+            const discordUrl = `https://discord.com/api/v10/webhooks/${env.DISCORD_APPLICATION_ID}/${interaction.token}/messages/@original`;
+            await fetch(discordUrl, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                content: "处理引用时发生内部错误。"
+              })
+            }).catch(console.error);
+          }
         })());
         
         return response;
@@ -180,6 +192,8 @@ export default {
 };
 
 async function handleAskCommand(prompt: string, token: string, env: Env, channelId: string, displayMessage?: string) {
+  const startTime = Date.now();
+  const MAX_WORKER_TIME = 26000; // 26 seconds total limit to ensure we leave time to reply to Discord
   try {
     const model = env.GEMINI_MODEL || 'gemini-3.1-flash';
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${env.GEMINI_API_KEY}`;
@@ -217,11 +231,18 @@ async function handleAskCommand(prompt: string, token: string, env: Env, channel
     let geminiRes: Response | undefined;
     let geminiData: any;
     let retries = 0;
-    const maxRetries = 5;
+    const maxRetries = 2;
 
     while (true) {
+      const timeElapsed = Date.now() - startTime;
+      const timeRemaining = MAX_WORKER_TIME - timeElapsed;
+      if (timeRemaining <= 0) {
+         throw new Error('Worker execution time limit exceeded');
+      }
+
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 25000);
+      const timeoutMs = Math.min(15000, timeRemaining); // Max 15s per request
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
       try {
         geminiRes = await fetch(geminiUrl, {
@@ -238,10 +259,10 @@ async function handleAskCommand(prompt: string, token: string, env: Env, channel
         }
       } catch (fetchErr: any) {
         clearTimeout(timeoutId);
-        if (fetchErr.name === 'AbortError' && retries < maxRetries) {
+        const elapsedNow = Date.now() - startTime;
+        if (fetchErr.name === 'AbortError' && retries < maxRetries && elapsedNow < MAX_WORKER_TIME - 2000) {
           retries++;
           console.warn(`Gemini API request timed out, retrying ${retries}/${maxRetries}...`);
-          await new Promise(resolve => setTimeout(resolve, 1000 * retries + Math.random() * 500));
           continue;
         }
         throw fetchErr;
@@ -253,12 +274,14 @@ async function handleAskCommand(prompt: string, token: string, env: Env, channel
         break;
       }
 
+      const elapsedNow = Date.now() - startTime;
+      if (elapsedNow > MAX_WORKER_TIME - 2000) {
+         break;
+      }
+
       retries++;
       console.warn(`Gemini API returned error status ${geminiRes.status}, retrying ${retries}/${maxRetries}...`);
-
-      // Exponential backoff with jitter: ~1.5s, ~3.5s, ~7.5s, ~15.5s, ...
-      const delay = Math.min(1000 * Math.pow(2, retries - 1), 15000) + Math.random() * 1000;
-      await new Promise(resolve => setTimeout(resolve, delay));
+      await new Promise(resolve => setTimeout(resolve, 1000));
     }
 
     let replyText = "";
@@ -362,8 +385,8 @@ async function handleAskCommand(prompt: string, token: string, env: Env, channel
   } catch (e: any) {
     console.error(e);
     let errorMessage = "请求 AI 服务时发生网络错误。";
-    if (e.name === 'AbortError') {
-       errorMessage = "请求超时 (AI 服务响应时间超过25秒)";
+    if (e.name === 'AbortError' || e.message === 'Worker execution time limit exceeded') {
+       errorMessage = "请求超时 (AI 服务响应时间过长)";
     }
     const discordUrl = `https://discord.com/api/v10/webhooks/${env.DISCORD_APPLICATION_ID}/${token}/messages/@original`;
     const patchRes = await fetch(discordUrl, {
