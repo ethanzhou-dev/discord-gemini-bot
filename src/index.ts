@@ -162,7 +162,11 @@ export default {
         let finalPrompt = "";
         if (prompt || imageUrls.length > 0) {
           finalPrompt = `[用户 ${userName}]: ${prompt || (imageUrls.length > 0 ? "[图片]" : "")}`;
-          ctx.waitUntil(handleAskCommand(finalPrompt, interaction.token, env, channelId, undefined, imageUrls));
+          let displayMessage = undefined;
+          if (prompt && commandName === 'ask') {
+            displayMessage = `> **提问:** ${prompt}`;
+          }
+          ctx.waitUntil(handleAskCommand(finalPrompt, interaction.token, env, channelId, displayMessage, imageUrls));
         } else {
           ctx.waitUntil(handleAskCommand(`[用户 ${userName}]: 无法读取消息内容或内容为空。`, interaction.token, env, channelId));
         }
