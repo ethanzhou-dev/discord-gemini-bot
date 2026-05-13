@@ -50,6 +50,7 @@ export default {
         const targetId = interaction.data.target_id;
         const messages = interaction.data.resolved?.messages;
         let quotedText = "";
+        let quotedImages: string[] = [];
         
         if (messages && messages[targetId]) {
           const targetMsg = messages[targetId];
@@ -71,11 +72,20 @@ export default {
           if (quotedText.length > 4000) {
             quotedText = quotedText.substring(0, 3995) + '...';
           }
+
+          if (targetMsg.attachments && targetMsg.attachments.length > 0) {
+             targetMsg.attachments.forEach((att: any) => {
+                if (att.content_type?.startsWith('image/')) {
+                   quotedImages.push(att.url);
+                }
+             });
+          }
         }
         
         const quoteKey = `quote_${interaction.id}`;
         if (env.MEMORY_KV) {
-          ctx.waitUntil(env.MEMORY_KV.put(quoteKey, quotedText, { expirationTtl: 300 }).catch(console.error));
+          const quoteData = JSON.stringify({ text: quotedText, images: quotedImages });
+          ctx.waitUntil(env.MEMORY_KV.put(quoteKey, quoteData, { expirationTtl: 300 }).catch(console.error));
         }
 
         return Response.json({
@@ -105,10 +115,15 @@ export default {
 
       if (commandName === 'ask' || commandName === 'Ask Bot') {
         let prompt = "";
+        let imageUrls: string[] = [];
         
         if (commandName === 'ask') {
           const options = interaction.data.options;
           prompt = options?.[0]?.value || options?.find((opt: any) => opt.name === '问题')?.value;
+          const attachmentId = options?.find((opt: any) => opt.name === '图片')?.value;
+          if (attachmentId && interaction.data.resolved?.attachments?.[attachmentId]) {
+             imageUrls.push(interaction.data.resolved.attachments[attachmentId].url);
+          }
         } else if (commandName === 'Ask Bot') {
           const targetId = interaction.data.target_id;
           const messages = interaction.data.resolved?.messages;
@@ -129,6 +144,14 @@ export default {
             } else {
               prompt = `(引用了 ${targetAuthor} 的消息: "${content}")`;
             }
+
+            if (targetMsg.attachments && targetMsg.attachments.length > 0) {
+               targetMsg.attachments.forEach((att: any) => {
+                  if (att.content_type?.startsWith('image/')) {
+                     imageUrls.push(att.url);
+                  }
+               });
+            }
           }
         }
 
@@ -137,9 +160,9 @@ export default {
         });
 
         let finalPrompt = "";
-        if (prompt) {
-          finalPrompt = `[用户 ${userName}]: ${prompt}`;
-          ctx.waitUntil(handleAskCommand(finalPrompt, interaction.token, env, channelId));
+        if (prompt || imageUrls.length > 0) {
+          finalPrompt = `[用户 ${userName}]: ${prompt || (imageUrls.length > 0 ? "[图片]" : "")}`;
+          ctx.waitUntil(handleAskCommand(finalPrompt, interaction.token, env, channelId, undefined, imageUrls));
         } else {
           ctx.waitUntil(handleAskCommand(`[用户 ${userName}]: 无法读取消息内容或内容为空。`, interaction.token, env, channelId));
         }
@@ -164,8 +187,20 @@ export default {
         ctx.waitUntil((async () => {
           try {
             let quotedText = "";
+            let imageUrls: string[] = [];
             if (env.MEMORY_KV) {
-               quotedText = await env.MEMORY_KV.get(quoteKey) || "(无法获取引用的消息，可能已过期)";
+               const rawQuote = await env.MEMORY_KV.get(quoteKey);
+               if (rawQuote) {
+                  try {
+                     const parsed = JSON.parse(rawQuote);
+                     quotedText = parsed.text;
+                     imageUrls = parsed.images || [];
+                  } catch (e) {
+                     quotedText = rawQuote;
+                  }
+               } else {
+                  quotedText = "(无法获取引用的消息，可能已过期)";
+               }
             } else {
                quotedText = "(KV 存储未配置，无法获取引用的消息)";
             }
@@ -185,7 +220,7 @@ export default {
 
             let finalPrompt = `[用户 ${userName}]: ${question}\n\n${quotedText}`;
             let displayMessage = `> **提问:** ${question}`;
-            await handleAskCommand(finalPrompt, interaction.token, env, channelId, displayMessage);
+            await handleAskCommand(finalPrompt, interaction.token, env, channelId, displayMessage, imageUrls);
           } catch (e) {
             console.error("Error in modal submit processing:", e);
             const discordUrl = `https://discord.com/api/v10/webhooks/${env.DISCORD_APPLICATION_ID}/${interaction.token}/messages/@original`;
@@ -207,7 +242,7 @@ export default {
   }
 };
 
-async function handleAskCommand(prompt: string, token: string, env: Env, channelId: string, displayMessage?: string) {
+async function handleAskCommand(prompt: string, token: string, env: Env, channelId: string, displayMessage?: string, imageUrls?: string[]) {
   const startTime = Date.now();
   const MAX_WORKER_TIME = 28000;
   try {
@@ -229,16 +264,26 @@ async function handleAskCommand(prompt: string, token: string, env: Env, channel
         }
     }
 
+    const userParts: any[] = [{ text: safePrompt }];
+    if (imageUrls && imageUrls.length > 0) {
+      for (const url of imageUrls) {
+        const imageData = await fetchImageAsBase64(url);
+        if (imageData) {
+          userParts.push({ inlineData: imageData });
+        }
+      }
+    }
+
     history.push({
         role: "user",
-        parts: [{ text: safePrompt }]
+        parts: userParts
     });
 
     let sanitizedHistory: any[] = [];
     let expectedRole = 'user';
     for (let i = history.length - 1; i >= 0; i--) {
         const h = history[i];
-        if (h && h.role === expectedRole && h.parts && h.parts.length > 0 && typeof h.parts[0].text === 'string' && h.parts[0].text.trim() !== '') {
+        if (h && h.role === expectedRole && h.parts && h.parts.length > 0 && (h.parts.some((p: any) => p.text?.trim() !== '') || h.parts.some((p: any) => p.inlineData))) {
             sanitizedHistory.unshift(h);
             expectedRole = expectedRole === 'user' ? 'model' : 'user';
         }
@@ -381,7 +426,12 @@ async function handleAskCommand(prompt: string, token: string, env: Env, channel
             history = history.slice(history.length - MAX_HISTORY_LENGTH);
         }
         
-        env.MEMORY_KV.put(historyKey, JSON.stringify(history)).catch(console.error);
+        const historyToSave = history.map(h => ({
+            ...h,
+            parts: h.parts.filter((p: any) => !p.inlineData)
+        }));
+        
+        env.MEMORY_KV.put(historyKey, JSON.stringify(historyToSave)).catch(console.error);
     }
 
     if (displayMessage) {
@@ -450,5 +500,27 @@ async function handleAskCommand(prompt: string, token: string, env: Env, channel
     if (!patchRes.ok) {
         console.error('Failed to send error message to Discord:', patchRes.status, await patchRes.text());
     }
+  }
+}
+
+async function fetchImageAsBase64(url: string): Promise<{ mimeType: string, data: string } | null> {
+  try {
+    const response = await fetch(url);
+    if (!response.ok) return null;
+    const arrayBuffer = await response.arrayBuffer();
+    
+    let binary = '';
+    const bytes = new Uint8Array(arrayBuffer);
+    const len = bytes.byteLength;
+    for (let i = 0; i < len; i++) {
+        binary += String.fromCharCode(bytes[i]);
+    }
+    const base64 = btoa(binary);
+    
+    const mimeType = response.headers.get('content-type') || 'image/jpeg';
+    return { mimeType, data: base64 };
+  } catch (e) {
+    console.error("Failed to fetch image:", e);
+    return null;
   }
 }

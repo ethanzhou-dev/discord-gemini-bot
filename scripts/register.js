@@ -17,6 +17,12 @@ const commands = [
         description: '你的问题 (Your question)',
         type: 3,
         required: true,
+      },
+      {
+        name: '图片',
+        description: '附带的图片 (Attached image)',
+        type: 11,
+        required: false,
       }
     ]
   },
