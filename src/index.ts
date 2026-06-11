@@ -407,6 +407,8 @@ async function handleAskCommand(prompt: string, token: string, env: Env, channel
             .join("")
             .trim();
             
+          replyText = replyText.replace(/<think>[\s\S]*?<\/think>\n*/gi, '').trim();
+
           replyText = replyText.replace(/\$\\rightarrow\$/g, '->')
                                .replace(/\\rightarrow/g, '->')
                                .replace(/\$\\Rightarrow\$/g, '=>')
