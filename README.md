@@ -2,7 +2,7 @@
 
 基于 Cloudflare Workers 和 Google Gemini API 构建的 Discord 聊天机器人。
 
-## 🛠 配置说明 (环境变量)
+## 配置说明
 
 | 环境变量名 | 描述 | 是否必须 | 默认值 |
 | --- | --- | --- | --- |
@@ -12,7 +12,7 @@
 | `GEMINI_MODEL` | 使用的 Gemini 模型版本 | 否 | - |
 | `SYSTEM_PROMPT` | 机器人行为设定 (System Prompt) | 否 | - |
 
-## 📝 使用方法
+## 使用方法
 
 在部署并完成 Endpoint 配置后，将机器人邀请至您的 Discord 服务器。
 
@@ -21,6 +21,6 @@
 /ask prompt: 你要说的话
 ```
 
-## 📄 许可证 (License)
+## 许可证 (License)
 
 本项目基于 [MIT](LICENSE) 协议开源。
