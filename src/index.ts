@@ -1,4 +1,5 @@
 import { verifyKey } from 'discord-interactions';
+import { Buffer } from 'node:buffer';
 
 export interface Env {
   DISCORD_PUBLIC_KEY: string;
@@ -314,7 +315,7 @@ async function handleAskCommand(prompt: string, token: string, env: Env, channel
     };
     
     if (env.SYSTEM_PROMPT) {
-      requestBody.system_instruction = {
+      requestBody.systemInstruction = {
         parts: [{ text: env.SYSTEM_PROMPT }]
       };
     }
@@ -361,7 +362,7 @@ async function handleAskCommand(prompt: string, token: string, env: Env, channel
         clearTimeout(timeoutId);
       }
 
-      if (geminiRes.ok || (geminiRes.status < 500 && geminiRes.status !== 429)) {
+      if (geminiRes.ok || (geminiRes.status < 500)) {
         break;
       }
 
@@ -392,7 +393,11 @@ async function handleAskCommand(prompt: string, token: string, env: Env, channel
        isError = true;
        console.error('Gemini API Error:', JSON.stringify(geminiData, null, 2));
        const errorMsg = geminiData?.error?.message || JSON.stringify(geminiData);
-       replyText = `抱歉，AI 服务返回了错误。\n状态码: ${geminiRes?.status || 'Unknown'}\n信息: ${errorMsg}`;
+       if (geminiRes?.status === 429) {
+          replyText = `抱歉，服务当前请求过多被限流，请稍候重试。\n信息: ${errorMsg}`;
+       } else {
+          replyText = `抱歉，AI 服务返回了错误。\n状态码: ${geminiRes?.status || 'Unknown'}\n信息: ${errorMsg}`;
+       }
     } else {
        const parts = geminiData?.candidates?.[0]?.content?.parts;
        if (Array.isArray(parts)) {
@@ -513,13 +518,7 @@ async function fetchImageAsBase64(url: string): Promise<{ mimeType: string, data
     if (!response.ok) return null;
     const arrayBuffer = await response.arrayBuffer();
     
-    let binary = '';
-    const bytes = new Uint8Array(arrayBuffer);
-    const len = bytes.byteLength;
-    for (let i = 0; i < len; i++) {
-        binary += String.fromCharCode(bytes[i]);
-    }
-    const base64 = btoa(binary);
+    const base64 = Buffer.from(arrayBuffer).toString('base64');
     
     const mimeType = response.headers.get('content-type') || 'image/jpeg';
     return { mimeType, data: base64 };
