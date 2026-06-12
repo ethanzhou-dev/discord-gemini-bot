@@ -7,7 +7,41 @@ export interface Env {
   GEMINI_API_KEY: string;
   SYSTEM_PROMPT?: string;
   GEMINI_MODEL?: string;
-  MEMORY_KV: any;
+  MEMORY_KV: KVNamespace;
+}
+
+function discordWebhookUrl(appId: string, token: string, suffix = '/messages/@original') {
+  return `https://discord.com/api/v10/webhooks/${appId}/${token}${suffix}`;
+}
+
+function extractMessageContent(targetMsg: any, userObj: any): { text: string; images: string[] } {
+  const targetAuthor = targetMsg.author?.global_name || targetMsg.author?.username || 'Unknown User';
+
+  let content = targetMsg.content;
+  if (!content && targetMsg.message_snapshots && targetMsg.message_snapshots.length > 0) {
+    const snapshotMessage = targetMsg.message_snapshots[0].message;
+    if (snapshotMessage && snapshotMessage.content) {
+      content = snapshotMessage.content;
+    }
+  }
+
+  let text: string;
+  if (userObj?.id && targetMsg.author?.id === userObj.id) {
+    text = content;
+  } else {
+    text = `(引用了 ${targetAuthor} 的消息: "${content}")`;
+  }
+
+  const images: string[] = [];
+  if (targetMsg.attachments && targetMsg.attachments.length > 0) {
+    targetMsg.attachments.forEach((att: any) => {
+      if (att.content_type?.startsWith('image/')) {
+        images.push(att.url);
+      }
+    });
+  }
+
+  return { text, images };
 }
 
 export default {
@@ -54,32 +88,12 @@ export default {
         let quotedImages: string[] = [];
         
         if (messages && messages[targetId]) {
-          const targetMsg = messages[targetId];
-          const targetAuthor = targetMsg.author?.global_name || targetMsg.author?.username || 'Unknown User';
-          
-          let content = targetMsg.content;
-          if (!content && targetMsg.message_snapshots && targetMsg.message_snapshots.length > 0) {
-            const snapshotMessage = targetMsg.message_snapshots[0].message;
-            if (snapshotMessage && snapshotMessage.content) {
-              content = snapshotMessage.content;
-            }
-          }
-          
-          if (userObj?.id && targetMsg.author?.id === userObj.id) {
-            quotedText = content;
-          } else {
-            quotedText = `(引用了 ${targetAuthor} 的消息: "${content}")`;
-          }
+          const extracted = extractMessageContent(messages[targetId], userObj);
+          quotedText = extracted.text;
+          quotedImages = extracted.images;
+
           if (quotedText.length > 4000) {
             quotedText = quotedText.substring(0, 3995) + '...';
-          }
-
-          if (targetMsg.attachments && targetMsg.attachments.length > 0) {
-             targetMsg.attachments.forEach((att: any) => {
-                if (att.content_type?.startsWith('image/')) {
-                   quotedImages.push(att.url);
-                }
-             });
           }
         }
         
@@ -120,7 +134,7 @@ export default {
         
         if (commandName === 'ask') {
           const options = interaction.data.options;
-          prompt = options?.[0]?.value || options?.find((opt: any) => opt.name === '问题')?.value;
+          prompt = options?.find((opt: any) => opt.name === '问题')?.value || "";
           const attachmentId = options?.find((opt: any) => opt.name === '图片')?.value;
           if (attachmentId && interaction.data.resolved?.attachments?.[attachmentId]) {
              imageUrls.push(interaction.data.resolved.attachments[attachmentId].url);
@@ -129,30 +143,9 @@ export default {
           const targetId = interaction.data.target_id;
           const messages = interaction.data.resolved?.messages;
           if (messages && messages[targetId]) {
-            const targetMsg = messages[targetId];
-            const targetAuthor = targetMsg.author?.global_name || targetMsg.author?.username || 'Unknown User';
-            
-            let content = targetMsg.content;
-            if (!content && targetMsg.message_snapshots && targetMsg.message_snapshots.length > 0) {
-              const snapshotMessage = targetMsg.message_snapshots[0].message;
-              if (snapshotMessage && snapshotMessage.content) {
-                content = snapshotMessage.content;
-              }
-            }
-            
-            if (userObj?.id && targetMsg.author?.id === userObj.id) {
-              prompt = content;
-            } else {
-              prompt = `(引用了 ${targetAuthor} 的消息: "${content}")`;
-            }
-
-            if (targetMsg.attachments && targetMsg.attachments.length > 0) {
-               targetMsg.attachments.forEach((att: any) => {
-                  if (att.content_type?.startsWith('image/')) {
-                     imageUrls.push(att.url);
-                  }
-               });
-            }
+            const extracted = extractMessageContent(messages[targetId], userObj);
+            prompt = extracted.text;
+            imageUrls = extracted.images;
           }
         }
 
@@ -179,7 +172,7 @@ export default {
     if (interaction.type === 5) {
       const customId = interaction.data?.custom_id;
       if (customId && customId.startsWith('quote_ask_modal:')) {
-        const quoteKey = customId.split(':')[1];
+        const quoteKey = customId.substring('quote_ask_modal:'.length);
         
         const channelId = interaction.channel_id || interaction.channel?.id || 'global';
         const userObj = interaction.member?.user || interaction.user;
@@ -228,8 +221,8 @@ export default {
             await handleAskCommand(finalPrompt, interaction.token, env, channelId, displayMessage, imageUrls);
           } catch (e) {
             console.error("Error in modal submit processing:", e);
-            const discordUrl = `https://discord.com/api/v10/webhooks/${env.DISCORD_APPLICATION_ID}/${interaction.token}/messages/@original`;
-            await fetch(discordUrl, {
+            const errorUrl = discordWebhookUrl(env.DISCORD_APPLICATION_ID, interaction.token);
+            await fetch(errorUrl, {
               method: 'PATCH',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -350,7 +343,6 @@ async function handleAskCommand(prompt: string, token: string, env: Env, channel
           geminiData = { error: { message: `Invalid JSON response: ${geminiRes.statusText}` } };
         }
       } catch (fetchErr: any) {
-        clearTimeout(timeoutId);
         const elapsedNow = Date.now() - startTime;
         if (fetchErr.name === 'AbortError' && retries < maxRetries && elapsedNow < MAX_WORKER_TIME - 5000) {
           retries++;
@@ -392,11 +384,10 @@ async function handleAskCommand(prompt: string, token: string, env: Env, channel
     if (!geminiRes || !geminiRes.ok) {
        isError = true;
        console.error('Gemini API Error:', JSON.stringify(geminiData, null, 2));
-       const errorMsg = geminiData?.error?.message || JSON.stringify(geminiData);
        if (geminiRes?.status === 429) {
-          replyText = `抱歉，服务当前请求过多被限流，请稍候重试。\n信息: ${errorMsg}`;
+          replyText = "抱歉，服务当前请求过多被限流，请稍候重试。";
        } else {
-          replyText = `抱歉，AI 服务返回了错误。\n状态码: ${geminiRes?.status || 'Unknown'}\n信息: ${errorMsg}`;
+          replyText = `抱歉，AI 服务返回了错误 (${geminiRes?.status || 'Unknown'})，请稍后重试。`;
        }
     } else {
        const parts = geminiData?.candidates?.[0]?.content?.parts;
@@ -422,7 +413,7 @@ async function handleAskCommand(prompt: string, token: string, env: Env, channel
              replyText = `抱歉，内容生成被拦截。原因: ${finishReason}`;
           } else {
              console.error('Gemini API Unexpected Response:', JSON.stringify(geminiData, null, 2));
-             replyText = `抱歉，收到意外的 API 响应格式。\n响应内容: ${JSON.stringify(geminiData).substring(0, 500)}`;
+             replyText = "抱歉，AI 返回了意外的响应格式，请稍后重试。";
           }
        }
     }
@@ -442,34 +433,17 @@ async function handleAskCommand(prompt: string, token: string, env: Env, channel
             parts: h.parts.filter((p: any) => !p.inlineData)
         }));
         
-        env.MEMORY_KV.put(historyKey, JSON.stringify(historyToSave)).catch(console.error);
+        await env.MEMORY_KV.put(historyKey, JSON.stringify(historyToSave)).catch(console.error);
     }
 
     if (displayMessage) {
         replyText = `${displayMessage}\n\n${replyText}`;
     }
 
-    const maxLength = 2000;
-    const chunks: string[] = [];
-    let remainingText = replyText;
-    
-    while (remainingText.length > 0) {
-      if (remainingText.length <= maxLength) {
-        chunks.push(remainingText);
-        break;
-      }
-      
-      let breakIndex = remainingText.lastIndexOf('\n', maxLength);
-      if (breakIndex === -1 || breakIndex < maxLength * 0.5) {
-         breakIndex = maxLength;
-      }
-      
-      chunks.push(remainingText.substring(0, breakIndex));
-      remainingText = remainingText.substring(breakIndex).replace(/^\n+/, '');
-    }
+    const chunks = splitMessageChunks(replyText, 2000);
 
-    const discordUrl = `https://discord.com/api/v10/webhooks/${env.DISCORD_APPLICATION_ID}/${token}/messages/@original`;
-    const patchRes = await fetch(discordUrl, {
+    const patchUrl = discordWebhookUrl(env.DISCORD_APPLICATION_ID, token);
+    const patchRes = await fetch(patchUrl, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -482,7 +456,7 @@ async function handleAskCommand(prompt: string, token: string, env: Env, channel
     }
 
     for (let i = 1; i < chunks.length; i++) {
-      const followUpUrl = `https://discord.com/api/v10/webhooks/${env.DISCORD_APPLICATION_ID}/${token}`;
+      const followUpUrl = discordWebhookUrl(env.DISCORD_APPLICATION_ID, token, '');
       const postRes = await fetch(followUpUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -500,8 +474,8 @@ async function handleAskCommand(prompt: string, token: string, env: Env, channel
     if (e.name === 'AbortError' || e.message === 'Worker execution time limit exceeded') {
        errorMessage = "请求超时，正在重试... 请稍后再试。";
     }
-    const discordUrl = `https://discord.com/api/v10/webhooks/${env.DISCORD_APPLICATION_ID}/${token}/messages/@original`;
-    const patchRes = await fetch(discordUrl, {
+    const errorUrl = discordWebhookUrl(env.DISCORD_APPLICATION_ID, token);
+    const patchRes = await fetch(errorUrl, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -514,10 +488,58 @@ async function handleAskCommand(prompt: string, token: string, env: Env, channel
   }
 }
 
+function splitMessageChunks(text: string, maxLength: number): string[] {
+  const chunks: string[] = [];
+  let remaining = text;
+
+  while (remaining.length > 0) {
+    if (remaining.length <= maxLength) {
+      chunks.push(remaining);
+      break;
+    }
+
+    let breakIndex = findSafeBreakPoint(remaining, maxLength);
+
+    chunks.push(remaining.substring(0, breakIndex));
+    remaining = remaining.substring(breakIndex).replace(/^\n+/, '');
+  }
+
+  return chunks;
+}
+
+function findSafeBreakPoint(text: string, maxLength: number): number {
+  const candidate = text.substring(0, maxLength);
+  const fenceMatches = candidate.match(/^```/gm);
+  const fenceCount = fenceMatches ? fenceMatches.length : 0;
+  const insideCodeBlock = fenceCount % 2 !== 0;
+
+  if (insideCodeBlock) {
+    const lastFenceIndex = candidate.lastIndexOf('\n```');
+    if (lastFenceIndex > maxLength * 0.3) {
+      return lastFenceIndex;
+    }
+  }
+
+  let breakIndex = candidate.lastIndexOf('\n');
+  if (breakIndex === -1 || breakIndex < maxLength * 0.5) {
+    breakIndex = maxLength;
+  }
+
+  return breakIndex;
+}
+
+const IMAGE_FETCH_TIMEOUT_MS = 5000;
+
 async function fetchImageAsBase64(url: string): Promise<{ mimeType: string, data: string } | null> {
   try {
-    const response = await fetch(url);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), IMAGE_FETCH_TIMEOUT_MS);
+
+    const response = await fetch(url, { signal: controller.signal });
+    clearTimeout(timeoutId);
+
     if (!response.ok) return null;
+
     const arrayBuffer = await response.arrayBuffer();
     
     const base64 = Buffer.from(arrayBuffer).toString('base64');
