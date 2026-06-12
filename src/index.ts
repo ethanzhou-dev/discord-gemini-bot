@@ -156,7 +156,7 @@ export default {
         let finalPrompt = "";
         if (prompt || imageUrls.length > 0) {
           finalPrompt = `[用户 ${userName}]: ${prompt || (imageUrls.length > 0 ? "[图片]" : "")}`;
-          let displayMessage = undefined;
+          let displayMessage: string | undefined;
           if (prompt && commandName === 'ask') {
             displayMessage = `> **提问:** ${prompt}`;
           }
@@ -216,8 +216,8 @@ export default {
               }
             }
 
-            let finalPrompt = `[用户 ${userName}]: ${question}\n\n${quotedText}`;
-            let displayMessage = `> **提问:** ${question}`;
+            const finalPrompt = `[用户 ${userName}]: ${question}\n\n${quotedText}`;
+            const displayMessage = `> **提问:** ${question}`;
             await handleAskCommand(finalPrompt, interaction.token, env, channelId, displayMessage, imageUrls);
           } catch (e) {
             console.error("Error in modal submit processing:", e);
