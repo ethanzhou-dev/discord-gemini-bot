@@ -157,8 +157,17 @@ export default {
         if (prompt || imageUrls.length > 0) {
           finalPrompt = `[用户 ${userName}]: ${prompt || (imageUrls.length > 0 ? "[图片]" : "")}`;
           let displayMessage: string | undefined;
-          if (prompt && commandName === 'ask') {
-            displayMessage = `> **提问:** ${prompt}`;
+          if (commandName === 'ask') {
+            const parts: string[] = [];
+            if (prompt) {
+              parts.push(`> **提问:** ${prompt}`);
+            }
+            if (imageUrls.length > 0) {
+              parts.push(imageUrls.map(url => url).join('\n'));
+            }
+            if (parts.length > 0) {
+              displayMessage = parts.join('\n');
+            }
           }
           ctx.waitUntil(handleAskCommand(finalPrompt, interaction.token, env, channelId, displayMessage, imageUrls));
         } else {
