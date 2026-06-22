@@ -10,6 +10,8 @@
 | `DISCORD_PUBLIC_KEY` | Discord 应用的 Public Key | 是 | - |
 | `GEMINI_API_KEY` | Google Gemini API 密钥 | 是 | - |
 | `GEMINI_MODEL` | 使用的 Gemini 模型版本 | 否 | - |
+| `OPENROUTER_API_KEY` | OpenRouter API 密钥 (配置后优先使用 OpenRouter) | 否 | - |
+| `OPENROUTER_MODEL` | 使用的 OpenRouter 模型版本 | 否 | openai/gpt-3.5-turbo |
 | `SYSTEM_PROMPT` | 机器人行为设定 (System Prompt) | 否 | - |
 
 ## 使用方法

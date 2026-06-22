@@ -7,6 +7,8 @@ export interface Env {
   GEMINI_API_KEY: string;
   SYSTEM_PROMPT?: string;
   GEMINI_MODEL?: string;
+  OPENROUTER_API_KEY?: string;
+  OPENROUTER_MODEL?: string;
   MEMORY_KV: KVNamespace;
 }
 
@@ -253,9 +255,6 @@ async function handleAskCommand(prompt: string, token: string, env: Env, channel
   const startTime = Date.now();
   const MAX_WORKER_TIME = 28000;
   try {
-    const model = env.GEMINI_MODEL || 'gemini-3.1-flash';
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${env.GEMINI_API_KEY}`;
-    
     const safePrompt = (prompt && prompt.trim() !== '') ? prompt : "你好";
 
     let history: any[] = [];
@@ -309,21 +308,53 @@ async function handleAskCommand(prompt: string, token: string, env: Env, channel
         }
     }
 
-    const requestBody: any = {
-      contents: history,
-      generationConfig: {
-        maxOutputTokens: 1500,
-      }
-    };
+    const isOpenRouter = !!env.OPENROUTER_API_KEY;
     
-    if (env.SYSTEM_PROMPT) {
-      requestBody.systemInstruction = {
-        parts: [{ text: env.SYSTEM_PROMPT }]
-      };
+    let apiUrl = '';
+    let apiHeaders: any = { 'Content-Type': 'application/json' };
+    let apiBody: any = {};
+
+    if (isOpenRouter) {
+       apiUrl = 'https://openrouter.ai/api/v1/chat/completions';
+       apiHeaders['Authorization'] = `Bearer ${env.OPENROUTER_API_KEY}`;
+       
+       const orModel = env.OPENROUTER_MODEL || 'openai/gpt-3.5-turbo';
+       const orMessages: any[] = [];
+       if (env.SYSTEM_PROMPT) {
+           orMessages.push({ role: 'system', content: env.SYSTEM_PROMPT });
+       }
+       for (const h of history) {
+           const role = h.role === 'model' ? 'assistant' : h.role;
+           const content: any[] = [];
+           for (const p of h.parts) {
+               if (p.text) content.push({ type: 'text', text: p.text });
+               if (p.inlineData) content.push({ type: 'image_url', image_url: { url: `data:${p.inlineData.mimeType};base64,${p.inlineData.data}` } });
+           }
+           orMessages.push({ role, content });
+       }
+       apiBody = {
+           model: orModel,
+           messages: orMessages,
+           max_tokens: 1500
+       };
+    } else {
+       const model = env.GEMINI_MODEL || 'gemini-3.1-flash';
+       apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${env.GEMINI_API_KEY}`;
+       apiBody = {
+         contents: history,
+         generationConfig: {
+           maxOutputTokens: 1500,
+         }
+       };
+       if (env.SYSTEM_PROMPT) {
+         apiBody.systemInstruction = {
+           parts: [{ text: env.SYSTEM_PROMPT }]
+         };
+       }
     }
 
-    let geminiRes: Response | undefined;
-    let geminiData: any;
+    let apiRes: Response | undefined;
+    let apiData: any;
     let retries = 0;
     const maxRetries = 2;
 
@@ -339,23 +370,23 @@ async function handleAskCommand(prompt: string, token: string, env: Env, channel
       const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
       try {
-        geminiRes = await fetch(geminiUrl, {
+        apiRes = await fetch(apiUrl, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(requestBody),
+          headers: apiHeaders,
+          body: JSON.stringify(apiBody),
           signal: controller.signal
         });
 
         try {
-          geminiData = await geminiRes.json();
+          apiData = await apiRes.json();
         } catch (err) {
-          geminiData = { error: { message: `Invalid JSON response: ${geminiRes.statusText}` } };
+          apiData = { error: { message: `Invalid JSON response: ${apiRes.statusText}` } };
         }
       } catch (fetchErr: any) {
         const elapsedNow = Date.now() - startTime;
         if (fetchErr.name === 'AbortError' && retries < maxRetries && elapsedNow < MAX_WORKER_TIME - 5000) {
           retries++;
-          console.warn(`Gemini API request timed out, retrying ${retries}/${maxRetries}...`);
+          console.warn(`API request timed out, retrying ${retries}/${maxRetries}...`);
           continue;
         }
         throw fetchErr;
@@ -363,7 +394,7 @@ async function handleAskCommand(prompt: string, token: string, env: Env, channel
         clearTimeout(timeoutId);
       }
 
-      if (geminiRes.ok || (geminiRes.status < 500)) {
+      if (apiRes.ok || (apiRes.status < 500)) {
         break;
       }
 
@@ -377,11 +408,20 @@ async function handleAskCommand(prompt: string, token: string, env: Env, channel
       }
 
       retries++;
-      console.warn(`Gemini API returned error status ${geminiRes.status}, retrying ${retries}/${maxRetries}...`);
+      console.warn(`API returned error status ${apiRes.status}, retrying ${retries}/${maxRetries}...`);
       
-      if (retries === maxRetries && geminiRes.status >= 500) {
+      if (retries === maxRetries && apiRes.status >= 500) {
           console.warn("Dropping conversation history for final retry to bypass potential payload-induced 500 error.");
-          requestBody.contents = [{ role: "user", parts: [{ text: safePrompt }] }];
+          if (isOpenRouter) {
+              const safeOrMessages: any[] = [];
+              if (env.SYSTEM_PROMPT) {
+                  safeOrMessages.push({ role: 'system', content: env.SYSTEM_PROMPT });
+              }
+              safeOrMessages.push({ role: 'user', content: [{ type: 'text', text: safePrompt }] });
+              apiBody.messages = safeOrMessages;
+          } else {
+              apiBody.contents = [{ role: "user", parts: [{ text: safePrompt }] }];
+          }
       }
 
       await new Promise(resolve => setTimeout(resolve, 1000));
@@ -390,39 +430,48 @@ async function handleAskCommand(prompt: string, token: string, env: Env, channel
     let replyText = "";
     let isError = false;
     
-    if (!geminiRes || !geminiRes.ok) {
+    if (!apiRes || !apiRes.ok) {
        isError = true;
-       console.error('Gemini API Error:', JSON.stringify(geminiData, null, 2));
-       if (geminiRes?.status === 429) {
+       console.error('API Error:', JSON.stringify(apiData, null, 2));
+       if (apiRes?.status === 429) {
           replyText = "抱歉，服务当前请求过多被限流，请稍候重试。";
        } else {
-          replyText = `抱歉，AI 服务返回了错误 (${geminiRes?.status || 'Unknown'})，请稍后重试。`;
+          replyText = `抱歉，AI 服务返回了错误 (${apiRes?.status || 'Unknown'})，请稍后重试。`;
        }
     } else {
-       const parts = geminiData?.candidates?.[0]?.content?.parts;
-       if (Array.isArray(parts)) {
-          replyText = parts
-            .filter((part: any) => !part.thought)
-            .map((part: any) => part.text || "")
-            .join("")
-            .trim();
-            
-          replyText = replyText.replace(/<think>[\s\S]*?<\/think>\n*/gi, '').trim();
-
-          replyText = replyText.replace(/\$\\rightarrow\$/g, '->')
-                               .replace(/\\rightarrow/g, '->')
-                               .replace(/\$\\Rightarrow\$/g, '=>')
-                               .replace(/\\Rightarrow/g, '=>');
-       }
-       
-       if (!replyText) {
-          isError = true;
-          const finishReason = geminiData?.candidates?.[0]?.finishReason;
-          if (finishReason && finishReason !== 'STOP') {
-             replyText = `抱歉，内容生成被拦截。原因: ${finishReason}`;
-          } else {
-             console.error('Gemini API Unexpected Response:', JSON.stringify(geminiData, null, 2));
+       if (isOpenRouter) {
+          replyText = apiData?.choices?.[0]?.message?.content || "";
+          if (!replyText) {
+             isError = true;
+             console.error('OpenRouter API Unexpected Response:', JSON.stringify(apiData, null, 2));
              replyText = "抱歉，AI 返回了意外的响应格式，请稍后重试。";
+          }
+       } else {
+          const parts = apiData?.candidates?.[0]?.content?.parts;
+          if (Array.isArray(parts)) {
+             replyText = parts
+               .filter((part: any) => !part.thought)
+               .map((part: any) => part.text || "")
+               .join("")
+               .trim();
+               
+             replyText = replyText.replace(/<think>[\s\S]*?<\/think>\n*/gi, '').trim();
+
+             replyText = replyText.replace(/\$\\rightarrow\$/g, '->')
+                                  .replace(/\\rightarrow/g, '->')
+                                  .replace(/\$\\Rightarrow\$/g, '=>')
+                                  .replace(/\\Rightarrow/g, '=>');
+          }
+          
+          if (!replyText) {
+             isError = true;
+             const finishReason = apiData?.candidates?.[0]?.finishReason;
+             if (finishReason && finishReason !== 'STOP') {
+                replyText = `抱歉，内容生成被拦截。原因: ${finishReason}`;
+             } else {
+                console.error('Gemini API Unexpected Response:', JSON.stringify(apiData, null, 2));
+                replyText = "抱歉，AI 返回了意外的响应格式，请稍后重试。";
+             }
           }
        }
     }
