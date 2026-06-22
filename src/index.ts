@@ -451,7 +451,6 @@ async function handleAskCommand(
 		}
 
 		let apiRes: Response | undefined;
-		// biome-ignore lint/suspicious/noExplicitAny: Parsed API response structure varies
 		let apiData: any;
 		let retries = 0;
 		const maxRetries = 2;
@@ -482,7 +481,6 @@ async function handleAskCommand(
 						error: { message: `Invalid JSON response: ${apiRes.statusText}` },
 					};
 				}
-				// biome-ignore lint/suspicious/noExplicitAny: Error can be anything
 			} catch (fetchErr: any) {
 				const elapsedNow = Date.now() - startTime;
 				if (
@@ -663,7 +661,6 @@ async function handleAskCommand(
 				);
 			}
 		}
-		// biome-ignore lint/suspicious/noExplicitAny: Error can be anything
 	} catch (e: any) {
 		console.error(e);
 		let errorMessage = "请求 AI 服务时发生网络错误。";
