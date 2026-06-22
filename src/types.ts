@@ -49,5 +49,6 @@ export interface Env {
 	GEMINI_MODEL?: string;
 	OPENROUTER_API_KEY?: string;
 	OPENROUTER_MODEL?: string;
+	API_PROVIDER?: string;
 	MEMORY_KV: KVNamespace;
 }

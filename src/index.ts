@@ -397,7 +397,8 @@ async function handleAskCommand(
 			}
 		}
 
-		const isOpenRouter = !!env.OPENROUTER_API_KEY;
+		const provider = env.API_PROVIDER?.toUpperCase() || "OPENROUTER";
+		const isOpenRouter = provider === "OPENROUTER";
 
 		let apiUrl = "";
 		const apiHeaders: Record<string, string> = {
