@@ -318,7 +318,7 @@ async function handleAskCommand(prompt: string, token: string, env: Env, channel
        apiUrl = 'https://openrouter.ai/api/v1/chat/completions';
        apiHeaders['Authorization'] = `Bearer ${env.OPENROUTER_API_KEY}`;
        
-       const orModel = env.OPENROUTER_MODEL || 'openai/gpt-3.5-turbo';
+       const orModel = env.OPENROUTER_MODEL || '';
        const orMessages: any[] = [];
        if (env.SYSTEM_PROMPT) {
            orMessages.push({ role: 'system', content: env.SYSTEM_PROMPT });
