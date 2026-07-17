@@ -452,7 +452,16 @@ async function handleAskCommand(
 		}
 
 		let apiRes: Response | undefined;
-		let apiData: any;
+		let apiData:
+			| {
+					choices?: { message?: { content?: string } }[];
+					candidates?: {
+						content?: { parts?: { text?: string }[] };
+						finishReason?: string;
+					}[];
+					error?: { message?: string };
+			  }
+			| undefined;
 		let retries = 0;
 		const maxRetries = 2;
 
@@ -482,9 +491,10 @@ async function handleAskCommand(
 						error: { message: `Invalid JSON response: ${apiRes.statusText}` },
 					};
 				}
-			} catch (fetchErr: any) {
+			} catch (fetchErr: unknown) {
 				const elapsedNow = Date.now() - startTime;
 				if (
+					fetchErr instanceof Error &&
 					fetchErr.name === "AbortError" &&
 					retries < maxRetries &&
 					elapsedNow < MAX_WORKER_TIME - 5000
@@ -662,12 +672,13 @@ async function handleAskCommand(
 				);
 			}
 		}
-	} catch (e: any) {
+	} catch (e: unknown) {
 		console.error(e);
 		let errorMessage = "请求 AI 服务时发生网络错误。";
 		if (
-			e.name === "AbortError" ||
-			e.message === "Worker execution time limit exceeded"
+			e instanceof Error &&
+			(e.name === "AbortError" ||
+				e.message === "Worker execution time limit exceeded")
 		) {
 			errorMessage = "请求超时，正在重试... 请稍后再试。";
 		}
